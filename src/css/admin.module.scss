@@ -1,0 +1,15 @@
+.adminLayout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.adminSidebar {
+  width: 240px;
+  flex-shrink: 0;
+}
+
+.adminMain {
+  flex-grow: 1;
+  padding: 24px;
+  margin-top: 64px;
+}

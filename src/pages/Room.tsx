@@ -47,8 +47,20 @@ async function retry<T>(
   }
 }
 
+function getIceServers(): RTCIceServer[] {
+  const raw = import.meta.env.VITE_ICE_SERVERS
+  if (raw) {
+    try {
+      return JSON.parse(raw)
+    } catch {
+      console.warn('Failed to parse VITE_ICE_SERVERS, using default STUN')
+    }
+  }
+  return [{ urls: 'stun:stun.l.google.com:19302' }]
+}
+
 function whepUrl(roomId: string) {
-  const url = new URL(`${whepBaseURL}/whep`)
+  const url = new URL(`${whepBaseURL}/rtc/v1/whep/`)
   url.searchParams.set('app', 'live')
   url.searchParams.set('stream', roomId)
   url.searchParams.set('token', '')
@@ -105,24 +117,7 @@ export default function Room() {
 
     //Create peerconnection
     const pc = new RTCPeerConnection({
-      iceServers: [
-        {
-          urls: [
-            'stun:10.15.0.65:3478',
-            'turn:10.15.0.65:3478?transport=udp',
-            'turn:10.15.0.65:3478?transport=tcp'
-          ],
-          username: 'public',
-          credential: '123456'
-        }
-        // {
-        //   urls: [
-        //     'stun:stun.l.google.com:19302',
-        //     // 'stun:stun.qq.com:3478',
-        //     'stun:stun.syncthing.net:3478'
-        //   ]
-        // }
-      ]
+      iceServers: getIceServers()
     })
     window.pc = pc
 
