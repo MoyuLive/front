@@ -14,7 +14,13 @@ import {
   Alert
 } from '@mui/material'
 import StopIcon from '@mui/icons-material/Stop'
+
 import { listStreams, stopStream, StreamInfo } from '../libs/api'
+
+function formatTime(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleString('zh-CN')
+}
 
 export default function AdminLiveList() {
   const [streams, setStreams] = useState<StreamInfo[]>([])
@@ -29,8 +35,8 @@ export default function AdminLiveList() {
     try {
       const data = await listStreams()
       setStreams(data)
-    } catch {
-      // silently ignore errors on refresh
+    } catch (err) {
+      console.error('Failed to fetch streams:', err)
     }
   }, [])
 
@@ -72,9 +78,9 @@ export default function AdminLiveList() {
             <TableHead>
               <TableRow>
                 <TableCell>直播间ID</TableCell>
-                <TableCell>推流者</TableCell>
+                <TableCell>应用</TableCell>
                 <TableCell>状态</TableCell>
-                <TableCell>码率</TableCell>
+                <TableCell>分辨率</TableCell>
                 <TableCell>开始时间</TableCell>
                 <TableCell>操作</TableCell>
               </TableRow>
@@ -82,20 +88,22 @@ export default function AdminLiveList() {
             <TableBody>
               {streams.map((stream) => (
                 <TableRow key={stream.id}>
-                  <TableCell>{stream.id}</TableCell>
-                  <TableCell>{stream.publisher}</TableCell>
+                  <TableCell>{stream.stream_id}</TableCell>
+                  <TableCell>{stream.app}</TableCell>
                   <TableCell>{stream.status}</TableCell>
                   <TableCell>
-                    {stream.bitrate ? `${(stream.bitrate / 1024).toFixed(1)} kbps` : '-'}
+                    {stream.video_width && stream.video_height
+                      ? `${stream.video_width}x${stream.video_height}`
+                      : '-'}
                   </TableCell>
-                  <TableCell>{stream.startTime}</TableCell>
+                  <TableCell>{stream.started_at ? formatTime(stream.started_at) : '-'}</TableCell>
                   <TableCell>
                     <Button
                       variant="contained"
                       color="error"
                       size="small"
                       startIcon={<StopIcon />}
-                      onClick={() => handleStopStream(stream.id)}
+                      onClick={() => handleStopStream(stream.stream_id)}
                       disabled={loading}
                     >
                       结束直播

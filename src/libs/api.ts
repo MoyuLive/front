@@ -1,7 +1,26 @@
+// API base URL — override in production via VITE_API_BASE env var
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:9081'
+
+// Token refresh coordination — prevents infinite 401 → refresh → 401 loops
+let isRefreshing = false
+let refreshSubscribers: Array<(token: string) => void> = []
 
 function getToken(): string | null {
   return localStorage.getItem('jwt')
+}
+
+/** Raw fetch-based refresh — bypasses the request() interceptor to avoid loops */
+async function refreshTokenInternal(): Promise<string> {
+  const token = getToken()
+  const resp = await fetch(`${API_BASE}/api/account/refresh`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!resp.ok) throw new Error('Refresh failed')
+  const data = await resp.json()
+  if (data.code !== 0) throw new Error(data.msg || 'Refresh failed')
+  const newToken: string = data.data.token
+  localStorage.setItem('jwt', newToken)
+  return newToken
 }
 
 async function request<T>(
@@ -12,16 +31,54 @@ async function request<T>(
   const token = getToken()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>)
+    ...(options.headers as Record<string, string>),
   }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
-  const res = await fetch(url, {
-    ...options,
-    headers
-  })
-  return res.json()
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 30000)
+
+  try {
+    const res = await fetch(url, { ...options, headers, signal: controller.signal })
+    clearTimeout(timeoutId)
+
+    if (res.status === 401 && token) {
+      if (!isRefreshing) {
+        isRefreshing = true
+        try {
+          const newToken = await refreshTokenInternal()
+          isRefreshing = false
+          refreshSubscribers.forEach((cb) => cb(newToken))
+          refreshSubscribers = []
+          headers['Authorization'] = `Bearer ${newToken}`
+          const retryRes = await fetch(url, { ...options, headers })
+          return retryRes.json()
+        } catch {
+          isRefreshing = false
+          refreshSubscribers = []
+          localStorage.removeItem('jwt')
+          window.location.href = '/login'
+          return Promise.reject(new Error('Session expired'))
+        }
+      } else {
+        // Queue this request — retry after the ongoing refresh completes
+        return new Promise((resolve) => {
+          refreshSubscribers.push((newToken: string) => {
+            headers['Authorization'] = `Bearer ${newToken}`
+            fetch(url, { ...options, headers })
+              .then((r) => r.json())
+              .then(resolve)
+          })
+        })
+      }
+    }
+
+    return res.json()
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 export interface LoginParams {
@@ -31,20 +88,39 @@ export interface LoginParams {
 
 export interface LoginResult {
   token: string
-  expire: string
+}
+
+export async function login(params: LoginParams): Promise<LoginResult> {
+  const res = await request<LoginResult>('/api/account/login', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+  if (res.code !== 0) {
+    throw new Error(res.msg || '登录失败')
+  }
+  return res.data
 }
 
 export interface StreamInfo {
-  id: string
-  name: string
-  publisher: string
+  id: number
+  stream_id: string
+  app: string
+  vhost: string
+  user_id: number
+  client_id: string
+  server_id: string
+  stream_url: string
   status: string
-  bitrate: number
-  startTime: string
+  video_codec: string
+  audio_codec: string
+  video_width: number
+  video_height: number
+  started_at: string
+  ended_at: string | null
 }
 
 export interface StreamCodeInfo {
-  code: string
+  stream_code: string
 }
 
 export interface ServerStatus {
@@ -56,30 +132,13 @@ export interface ServerStatus {
   last_heartbeat: string
 }
 
-export async function login(params: LoginParams): Promise<LoginResult> {
-  const url = `${API_BASE}/api/account/login`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params)
-  })
-  const json = await res.json()
-  // gin-jwt returns { code: 200, token, expire } at top level
-  if (!json.token) {
-    throw new Error(json.message || '登录失败')
-  }
-  localStorage.setItem('jwt', json.token)
-  return { token: json.token, expire: json.expire }
-}
-
 export async function refreshToken(): Promise<LoginResult> {
-  const res = await request<LoginResult>('/api/account/refresh', {
-    method: 'POST'
-  })
-  if (res.code !== 0) {
-    throw new Error(res.msg || '刷新token失败')
+  try {
+    const token = await refreshTokenInternal()
+    return { token }
+  } catch {
+    throw new Error('刷新token失败')
   }
-  return res.data
 }
 
 export async function getStreamCode(): Promise<StreamCodeInfo> {
@@ -92,7 +151,7 @@ export async function getStreamCode(): Promise<StreamCodeInfo> {
 
 export async function resetStreamCode(): Promise<StreamCodeInfo> {
   const res = await request<StreamCodeInfo>('/api/live/stream/code/reset', {
-    method: 'POST'
+    method: 'POST',
   })
   if (res.code !== 0) {
     throw new Error(res.msg || '重置推流码失败')
@@ -100,18 +159,10 @@ export async function resetStreamCode(): Promise<StreamCodeInfo> {
   return res.data
 }
 
-export async function getStreamStatus(): Promise<StreamInfo> {
-  const res = await request<StreamInfo>('/api/live/stream/status')
-  if (res.code !== 0) {
-    throw new Error(res.msg || '获取直播状态失败')
-  }
-  return res.data
-}
-
 export async function stopStream(streamId: string): Promise<void> {
   const res = await request<null>('/api/live/stream/stop', {
     method: 'POST',
-    body: JSON.stringify({ stream_id: streamId })
+    body: JSON.stringify({ stream_id: streamId }),
   })
   if (res.code !== 0) {
     throw new Error(res.msg || '结束直播失败')
@@ -140,6 +191,7 @@ export interface ForwardRule {
   target_url: string
   enabled: boolean
   created_at: string
+  updated_at: string
 }
 
 export async function listForwardRules(): Promise<ForwardRule[]> {
@@ -153,7 +205,7 @@ export async function listForwardRules(): Promise<ForwardRule[]> {
 export async function addForwardRule(streamFilter: string, targetUrl: string): Promise<void> {
   const res = await request<null>('/api/live/forward/rules', {
     method: 'POST',
-    body: JSON.stringify({ stream_filter: streamFilter, target_url: targetUrl })
+    body: JSON.stringify({ stream_filter: streamFilter, target_url: targetUrl }),
   })
   if (res.code !== 0) {
     throw new Error(res.msg || '添加转发规则失败')
@@ -162,7 +214,7 @@ export async function addForwardRule(streamFilter: string, targetUrl: string): P
 
 export async function deleteForwardRule(id: number): Promise<void> {
   const res = await request<null>(`/api/live/forward/rules/${id}`, {
-    method: 'DELETE'
+    method: 'DELETE',
   })
   if (res.code !== 0) {
     throw new Error(res.msg || '删除转发规则失败')

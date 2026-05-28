@@ -5,6 +5,7 @@ import ReactPlayer from 'react-player/file'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useAtom } from 'jotai'
 
+// Fallback video used when no live stream is active
 import exampleVideo from '../assets/肥肠抱歉.mp4'
 import { WHEPClient } from '../libs/whep'
 import css from '../css/player.module.scss'
@@ -18,34 +19,7 @@ declare global {
 }
 
 // const whepBaseURL = 'http://100.64.0.6:8081'
-const whepBaseURL = import.meta.env.VITE_STREAMSERVER
-console.log('stream server: ', whepBaseURL)
-
-async function retry<T>(
-  fn: () => Promise<T>,
-  times: number,
-  delay = 0
-): Promise<T> {
-  try {
-    return await fn()
-  } catch (err) {
-    if (times > 0) {
-      console.log(
-        'get an error',
-        err,
-        'retrying in',
-        delay,
-        'ms',
-        'times left',
-        times
-      )
-      await new Promise((resolve) => setTimeout(resolve, delay))
-      return await retry(fn, times - 1, delay * 2)
-    } else {
-      throw err
-    }
-  }
-}
+const whepBaseURL = import.meta.env.VITE_STREAMSERVER || 'http://localhost:1985'
 
 function getIceServers(): RTCIceServer[] {
   const raw = import.meta.env.VITE_ICE_SERVERS
@@ -63,7 +37,7 @@ function whepUrl(roomId: string) {
   const url = new URL(`${whepBaseURL}/rtc/v1/whep/`)
   url.searchParams.set('app', 'live')
   url.searchParams.set('stream', roomId)
-  url.searchParams.set('token', '')
+  url.searchParams.set('token', localStorage.getItem('jwt') || '')
   return url.toString()
 }
 
@@ -86,15 +60,10 @@ export default function Room() {
     setRoom(roomId ?? '')
   }, [params])
 
-  useEffect(() => {
-    console.log('room:', room)
-  }, [room])
-
   // browser full screen callbacks
   useHotkeys(
     'ctrl+enter',
     () => {
-      console.log('full screen')
       setBrowserFullScreen(true)
     },
     []
@@ -103,7 +72,6 @@ export default function Room() {
   useHotkeys(
     'esc',
     () => {
-      console.log('exit full screen')
       setBrowserFullScreen(false)
     },
     []
@@ -112,8 +80,6 @@ export default function Room() {
   // setup whep client
   useEffect(() => {
     if (!room) return
-
-    console.log('init webrtc')
 
     //Create peerconnection
     const pc = new RTCPeerConnection({
@@ -126,11 +92,8 @@ export default function Room() {
     pc.addTransceiver('video')
 
     pc.ontrack = (event) => {
-      console.log(event)
-      if (event.track.kind == 'video') {
+      if (event.track.kind === 'video') {
         setVideoStream(event.streams[0])
-        // video.srcObject = event.streams[0]
-        // video.controls = true
       }
     }
 
@@ -141,16 +104,15 @@ export default function Room() {
     const abortCtrlor = new AbortController()
 
     const url = whepUrl(room)
-    //const token = ""
 
     //Start viewing
-    whep.view(pc, url, '', abortCtrlor.signal).catch((err) => console.log(err))
+    whep.view(pc, url, localStorage.getItem('jwt') || '', abortCtrlor.signal).catch((err) => console.error(err))
 
     return () => {
       abortCtrlor.abort()
       whep
         .stop()
-        .catch((err) => console.log(err))
+        .catch((err) => console.error(err))
         .finally(() => {
           pc.close()
           window.pc = undefined
@@ -163,16 +125,6 @@ export default function Room() {
       setPlaying(true)
     }
   }, [videoStream, playing])
-
-  // useEffect(() => {
-  //   const timer = setInterval(() => {
-  //     if (videoRef.current) {
-  //       console.log('remove src from video', videoRef.current)
-  //       videoRef.current.removeAttribute('src')
-  //     }
-  //   }, 1)
-  //   return () => clearInterval(timer)
-  // }, [room, video])
 
   return (
     <>

@@ -18,11 +18,13 @@ import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import DnsIcon from '@mui/icons-material/Dns'
 import CallSplitIcon from '@mui/icons-material/CallSplit'
 import LogoutIcon from '@mui/icons-material/Logout'
+
+import css from '../css/admin.module.scss'
+
 import AdminLiveList from './AdminLiveList'
 import AdminStreamCode from './AdminStreamCode'
 import AdminSystem from './AdminSystem'
 import AdminForwardRules from './AdminForwardRules'
-import css from '../css/admin.module.scss'
 
 const DRAWER_WIDTH = 240
 

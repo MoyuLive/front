@@ -13,6 +13,7 @@ import {
 } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+
 import { getStreamCode, resetStreamCode } from '../libs/api'
 
 const STREAM_SERVER = import.meta.env.VITE_STREAMSERVER || 'localhost:1935'
@@ -29,7 +30,7 @@ export default function AdminStreamCode() {
   const fetchCode = useCallback(async () => {
     try {
       const data = await getStreamCode()
-      setCode(data.code)
+      setCode(data.stream_code)
     } catch (err) {
       setSnackbar({
         open: true,
@@ -47,7 +48,7 @@ export default function AdminStreamCode() {
     setLoading(true)
     try {
       const data = await resetStreamCode()
-      setCode(data.code)
+      setCode(data.stream_code)
       setSnackbar({ open: true, message: '推流码已重置', severity: 'success' })
     } catch (err) {
       setSnackbar({

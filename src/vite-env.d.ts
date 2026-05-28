@@ -5,7 +5,3 @@ interface ImportMetaEnv {
     readonly VITE_API_BASE: string
     readonly VITE_ICE_SERVERS: string
 }
-
-interface ImportEnv {
-    readonly env: ImportMetaEnv
-}

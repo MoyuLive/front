@@ -19,6 +19,7 @@ import {
 } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/Delete'
 import AddIcon from '@mui/icons-material/Add'
+
 import { listForwardRules, addForwardRule, deleteForwardRule, ForwardRule } from '../libs/api'
 
 export default function AdminForwardRules() {
@@ -39,8 +40,8 @@ export default function AdminForwardRules() {
     try {
       const data = await listForwardRules()
       setRules(data)
-    } catch {
-      // silently ignore errors on initial load
+    } catch (err) {
+      console.error('Failed to fetch forward rules:', err)
     } finally {
       setLoading(false)
     }
