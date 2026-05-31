@@ -21,6 +21,7 @@ const RTMP_HOST = import.meta.env.VITE_RTMP_HOST || DEFAULT_RTMP_HOST
 
 export default function AdminStreamCode() {
   const [code, setCode] = useState('')
+  const [streamId, setStreamId] = useState('')
   const [loading, setLoading] = useState(false)
   const [snackbar, setSnackbar] = useState<{
     open: boolean
@@ -32,6 +33,7 @@ export default function AdminStreamCode() {
     try {
       const data = await getStreamCode()
       setCode(data.stream_code)
+      setStreamId(data.stream_id)
     } catch (err) {
       setSnackbar({
         open: true,
@@ -50,6 +52,7 @@ export default function AdminStreamCode() {
     try {
       const data = await resetStreamCode()
       setCode(data.stream_code)
+      setStreamId(data.stream_id)
       setSnackbar({ open: true, message: '推流码已重置', severity: 'success' })
     } catch (err) {
       setSnackbar({
@@ -62,7 +65,7 @@ export default function AdminStreamCode() {
     }
   }
 
-  const rtmpUrl = buildRtmpPublishUrl(RTMP_HOST, 'STREAM', code)
+  const rtmpUrl = buildRtmpPublishUrl(RTMP_HOST, streamId || 'STREAM', code)
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -106,6 +109,17 @@ export default function AdminStreamCode() {
           >
             {loading ? '重置中...' : '重置推流码'}
           </Button>
+
+          <Typography variant="subtitle1" gutterBottom>
+            直播间
+          </Typography>
+          <TextField
+            value={streamId}
+            fullWidth
+            variant="outlined"
+            InputProps={{ readOnly: true }}
+            sx={{ mb: 2 }}
+          />
 
           <Typography variant="subtitle1" gutterBottom>
             推流地址 (RTMP)

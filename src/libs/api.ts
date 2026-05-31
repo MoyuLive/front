@@ -121,6 +121,8 @@ export interface StreamInfo {
 
 export interface StreamCodeInfo {
   stream_code: string
+  stream_id: string
+  username: string
 }
 
 export interface ServerStatus {
