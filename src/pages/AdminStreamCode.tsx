@@ -15,8 +15,9 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 
 import { getStreamCode, resetStreamCode } from '../libs/api'
+import { buildRtmpPublishUrl, DEFAULT_RTMP_HOST } from '../libs/streamUrls'
 
-const STREAM_SERVER = import.meta.env.VITE_STREAMSERVER || 'localhost:1935'
+const RTMP_HOST = import.meta.env.VITE_RTMP_HOST || DEFAULT_RTMP_HOST
 
 export default function AdminStreamCode() {
   const [code, setCode] = useState('')
@@ -61,7 +62,7 @@ export default function AdminStreamCode() {
     }
   }
 
-  const rtmpUrl = `rtmp://${STREAM_SERVER}/live/STREAM?token=${code}`
+  const rtmpUrl = buildRtmpPublishUrl(RTMP_HOST, 'STREAM', code)
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {

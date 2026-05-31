@@ -7,6 +7,7 @@ import { useAtom } from 'jotai'
 
 // Fallback video used when no live stream is active
 import exampleVideo from '../assets/肥肠抱歉.mp4'
+import { buildWhepUrl, DEFAULT_WHEP_BASE } from '../libs/streamUrls'
 import { WHEPClient } from '../libs/whep'
 import css from '../css/player.module.scss'
 import { playerVolumeAtom } from '../storages/player'
@@ -18,8 +19,7 @@ declare global {
   }
 }
 
-// const whepBaseURL = 'http://100.64.0.6:8081'
-const whepBaseURL = import.meta.env.VITE_STREAMSERVER || 'http://localhost:1985'
+const whepBaseURL = import.meta.env.VITE_WHEP_BASE || DEFAULT_WHEP_BASE
 
 function getIceServers(): RTCIceServer[] {
   const raw = import.meta.env.VITE_ICE_SERVERS
@@ -31,14 +31,6 @@ function getIceServers(): RTCIceServer[] {
     }
   }
   return [{ urls: 'stun:stun.l.google.com:19302' }]
-}
-
-function whepUrl(roomId: string) {
-  const url = new URL(`${whepBaseURL}/rtc/v1/whep/`)
-  url.searchParams.set('app', 'live')
-  url.searchParams.set('stream', roomId)
-  url.searchParams.set('token', localStorage.getItem('jwt') || '')
-  return url.toString()
 }
 
 export default function Room() {
@@ -103,7 +95,7 @@ export default function Room() {
     window.whepClient = whep
     const abortCtrlor = new AbortController()
 
-    const url = whepUrl(room)
+    const url = buildWhepUrl(whepBaseURL, room, localStorage.getItem('jwt') || '')
 
     //Start viewing
     whep.view(pc, url, localStorage.getItem('jwt') || '', abortCtrlor.signal).catch((err) => console.error(err))
