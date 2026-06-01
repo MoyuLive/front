@@ -14,7 +14,6 @@ import {
   Typography
 } from '@mui/material'
 import LiveTvIcon from '@mui/icons-material/LiveTv'
-import PeopleAltIcon from '@mui/icons-material/PeopleAlt'
 import ScheduleIcon from '@mui/icons-material/Schedule'
 import SpeedIcon from '@mui/icons-material/Speed'
 
@@ -22,14 +21,18 @@ import { listLiveRooms, type LiveRoom } from '../libs/api'
 
 const REFRESH_INTERVAL_MS = 10000
 
-function formatStartTime(value: string | null): string {
-  if (!value) return '开播时间未知'
-  return new Date(value).toLocaleString('zh-CN', {
+function formatStartTime(value: number | null): string {
+  if (value == null) return '开播时间未知'
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return '开播时间未知'
+
+  return new Intl.DateTimeFormat('zh-CN', {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit'
-  })
+  }).format(date)
 }
 
 function formatDuration(ms: number): string {
@@ -183,20 +186,15 @@ export default function Home() {
                         <Stack direction="row" spacing={1} sx={{ color: 'text.secondary' }}>
                           <ScheduleIcon fontSize="small" />
                           <Typography variant="body2">
-                            {formatStartTime(room.started_at)} · {formatDuration(room.live_ms)}
-                          </Typography>
-                        </Stack>
-
-                        <Stack direction="row" spacing={1} sx={{ color: 'text.secondary' }}>
-                          <PeopleAltIcon fontSize="small" />
-                          <Typography variant="body2">
-                            {room.clients} 在线连接 · {formatResolution(room)}
+                            {formatStartTime(room.started_at_ms)} · {formatDuration(room.live_ms)}
                           </Typography>
                         </Stack>
 
                         <Stack direction="row" spacing={1} sx={{ color: 'text.secondary' }}>
                           <SpeedIcon fontSize="small" />
-                          <Typography variant="body2">{formatBitrate(room)}</Typography>
+                          <Typography variant="body2">
+                            {formatResolution(room)} · {formatBitrate(room)}
+                          </Typography>
                         </Stack>
                       </Stack>
                     </CardContent>

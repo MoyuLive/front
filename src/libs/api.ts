@@ -123,9 +123,8 @@ export interface LiveRoom {
   stream_id: string
   app: string
   status: string
-  started_at: string | null
+  started_at_ms: number | null
   live_ms: number
-  clients: number
   video_width: number | null
   video_height: number | null
   recv_kbps: number | null
