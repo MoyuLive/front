@@ -1,8 +1,22 @@
 export const DEFAULT_WHEP_BASE = 'http://localhost:1985'
 export const DEFAULT_RTMP_HOST = 'localhost:1935'
-export const AVAILABLE_PLAYBACK_PROTOCOLS = ['webrtc', 'hls', 'flv'] as const
+export const SUPPORTED_PLAYBACK_PROTOCOLS = ['webrtc', 'hls', 'flv'] as const
+export const DEFAULT_PLAYBACK_PROTOCOLS: PlaybackProtocol[] = ['webrtc']
+export const AVAILABLE_PLAYBACK_PROTOCOLS = SUPPORTED_PLAYBACK_PROTOCOLS
 
-export type PlaybackProtocol = typeof AVAILABLE_PLAYBACK_PROTOCOLS[number]
+export type PlaybackProtocol = typeof SUPPORTED_PLAYBACK_PROTOCOLS[number]
+
+export function normalizePlaybackProtocols(protocols: readonly string[]): PlaybackProtocol[] {
+  const normalized = protocols.reduce<PlaybackProtocol[]>((acc, protocol) => {
+    const value = protocol.trim().toLowerCase() as PlaybackProtocol
+    if (SUPPORTED_PLAYBACK_PROTOCOLS.includes(value) && !acc.includes(value)) {
+      acc.push(value)
+    }
+    return acc
+  }, [])
+
+  return normalized.length > 0 ? normalized : DEFAULT_PLAYBACK_PROTOCOLS
+}
 
 export function buildWhepUrl(baseUrl: string, roomId: string, token: string) {
   const normalizedBase = baseUrl.replace(/\/+$/, '')

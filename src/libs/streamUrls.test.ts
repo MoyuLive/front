@@ -1,9 +1,11 @@
 import {
-  AVAILABLE_PLAYBACK_PROTOCOLS,
   buildFlvPlaybackUrl,
   buildHlsPlaybackUrl,
   buildRtmpPublishUrl,
-  buildWhepUrl
+  buildWhepUrl,
+  DEFAULT_PLAYBACK_PROTOCOLS,
+  normalizePlaybackProtocols,
+  SUPPORTED_PLAYBACK_PROTOCOLS
 } from './streamUrls.js'
 
 function assertEqual(actual: string, expected: string) {
@@ -43,6 +45,21 @@ assertEqual(
 )
 
 assertEqual(
-  AVAILABLE_PLAYBACK_PROTOCOLS.join(','),
+  SUPPORTED_PLAYBACK_PROTOCOLS.join(','),
   'webrtc,hls,flv'
+)
+
+assertEqual(
+  DEFAULT_PLAYBACK_PROTOCOLS.join(','),
+  'webrtc'
+)
+
+assertEqual(
+  normalizePlaybackProtocols(['flv', 'unknown', 'hls', 'flv']).join(','),
+  'flv,hls'
+)
+
+assertEqual(
+  normalizePlaybackProtocols([]).join(','),
+  'webrtc'
 )

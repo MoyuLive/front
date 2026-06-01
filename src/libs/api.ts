@@ -134,6 +134,10 @@ export interface ServerStatus {
   last_heartbeat: string
 }
 
+export interface PlaybackProtocolsInfo {
+  protocols: string[]
+}
+
 export async function refreshToken(): Promise<LoginResult> {
   try {
     const token = await refreshTokenInternal()
@@ -183,6 +187,14 @@ export async function getServerStatus(): Promise<ServerStatus[]> {
   const res = await request<ServerStatus[]>('/api/system/status')
   if (res.code !== 0) {
     throw new Error(res.msg || '获取服务器状态失败')
+  }
+  return res.data
+}
+
+export async function getPlaybackProtocols(): Promise<PlaybackProtocolsInfo> {
+  const res = await request<PlaybackProtocolsInfo>('/api/playback/protocols')
+  if (res.code !== 0) {
+    throw new Error(res.msg || '获取播放协议失败')
   }
   return res.data
 }

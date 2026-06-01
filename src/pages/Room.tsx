@@ -7,12 +7,14 @@ import { useAtom } from 'jotai'
 
 // Fallback video used when no live stream is active
 import exampleVideo from '../assets/肥肠抱歉.mp4'
+import { getPlaybackProtocols } from '../libs/api'
 import {
-  AVAILABLE_PLAYBACK_PROTOCOLS,
   buildFlvPlaybackUrl,
   buildHlsPlaybackUrl,
   buildWhepUrl,
+  DEFAULT_PLAYBACK_PROTOCOLS,
   DEFAULT_WHEP_BASE,
+  normalizePlaybackProtocols,
   type PlaybackProtocol
 } from '../libs/streamUrls'
 import { WHEPClient } from '../libs/whep'
@@ -49,22 +51,50 @@ export default function Room() {
 
   const [videoStream, setVideoStream] = useState<MediaStream>()
   const [playing, setPlaying] = useState<boolean>()
-  const [playbackProtocol, setPlaybackProtocol] = useState<PlaybackProtocol>('webrtc')
+  const [playbackProtocol, setPlaybackProtocol] = useState<PlaybackProtocol>()
+  const [availablePlaybackProtocols, setAvailablePlaybackProtocols] = useState<PlaybackProtocol[]>([])
 
   const [browserFullScreen, setBrowserFullScreen] = useState<boolean>(false)
 
   const [playerVolume, setPlayerVolume] = useAtom(playerVolumeAtom)
   const hlsUrl = room ? buildHlsPlaybackUrl(room) : undefined
   const flvUrl = room ? buildFlvPlaybackUrl(room) : undefined
+  const playbackUrl = playbackProtocol === 'hls'
+    ? hlsUrl
+    : playbackProtocol === 'flv'
+      ? flvUrl
+      : undefined
   const playerUrl = playbackProtocol === 'webrtc'
     ? (videoStream || exampleVideo)
-    : ((playbackProtocol === 'hls' ? hlsUrl : flvUrl) || exampleVideo)
-  const playerPlaying = playbackProtocol === 'webrtc' && !videoStream ? false : playing
+    : (playbackUrl || exampleVideo)
+  const playerPlaying = !playbackProtocol || (playbackProtocol === 'webrtc' && !videoStream) ? false : playing
 
   useEffect(() => {
     const { roomId } = params
     setRoom(roomId ?? '')
   }, [params])
+
+  useEffect(() => {
+    let cancelled = false
+
+    getPlaybackProtocols()
+      .then((data) => normalizePlaybackProtocols(data.protocols))
+      .catch((err) => {
+        console.warn('Failed to load playback protocols, using default', err)
+        return DEFAULT_PLAYBACK_PROTOCOLS
+      })
+      .then((protocols) => {
+        if (cancelled) return
+        setAvailablePlaybackProtocols(protocols)
+        setPlaybackProtocol((current) => (
+          current && protocols.includes(current) ? current : protocols[0]
+        ))
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // browser full screen callbacks
   useHotkeys(
@@ -136,7 +166,7 @@ export default function Room() {
   }, [videoStream, playing])
 
   useEffect(() => {
-    if (playbackProtocol !== 'webrtc' && room && playing === undefined) {
+    if (playbackProtocol && playbackProtocol !== 'webrtc' && room && playing === undefined) {
       setPlaying(true)
     }
   }, [playbackProtocol, room, playing])
@@ -155,14 +185,14 @@ export default function Room() {
           <ToggleButtonGroup
             exclusive
             size="small"
-            value={playbackProtocol}
+            value={playbackProtocol ?? null}
             onChange={(_, value: PlaybackProtocol | null) => {
               if (value) {
                 setPlaybackProtocol(value)
               }
             }}
           >
-            {AVAILABLE_PLAYBACK_PROTOCOLS.map((protocol) => (
+            {availablePlaybackProtocols.map((protocol) => (
               <ToggleButton
                 key={protocol}
                 value={protocol}
