@@ -119,6 +119,19 @@ export interface StreamInfo {
   ended_at: string | null
 }
 
+export interface LiveRoom {
+  stream_id: string
+  app: string
+  status: string
+  started_at: string | null
+  live_ms: number
+  clients: number
+  video_width: number | null
+  video_height: number | null
+  recv_kbps: number | null
+  send_kbps: number | null
+}
+
 export interface StreamCodeInfo {
   stream_code: string
   stream_id: string
@@ -179,6 +192,14 @@ export async function listStreams(): Promise<StreamInfo[]> {
   const res = await request<StreamInfo[]>('/api/live/stream/list')
   if (res.code !== 0) {
     throw new Error(res.msg || '获取直播列表失败')
+  }
+  return res.data
+}
+
+export async function listLiveRooms(): Promise<LiveRoom[]> {
+  const res = await request<LiveRoom[]>('/api/live/rooms')
+  if (res.code !== 0) {
+    throw new Error(res.msg || '获取直播间列表失败')
   }
   return res.data
 }

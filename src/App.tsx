@@ -1,26 +1,19 @@
-import { useEffect } from 'react'
-import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom'
 
+import Home from './pages/Home.tsx'
 import Room from './pages/Room.tsx'
 import Login from './pages/Login.tsx'
 import Admin from './pages/Admin.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
-
-function Redirect({ to }: { to: string }) {
-  const nav = useNavigate()
-  useEffect(() => {
-    nav(to)
-  }, [nav, to])
-  return <div>redirect to {to}</div>
-}
 
 function App() {
   return (
     <>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Redirect to="/live" />} />
-          <Route path="/live/:roomId?" element={<Room />} />
+          <Route path="/" element={<Home />} />
+          <Route path="/live" element={<Navigate to="/" replace />} />
+          <Route path="/live/:roomId" element={<Room />} />
           <Route path="/login" element={<Login />} />
           <Route path="/admin" element={<ProtectedRoute />}>
             <Route index element={<Admin />} />
