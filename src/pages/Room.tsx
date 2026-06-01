@@ -1,13 +1,20 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import { Container } from '@mui/material'
+import { Box, Container, ToggleButton, ToggleButtonGroup } from '@mui/material'
 import ReactPlayer from 'react-player/file'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useAtom } from 'jotai'
 
 // Fallback video used when no live stream is active
 import exampleVideo from '../assets/肥肠抱歉.mp4'
-import { buildWhepUrl, DEFAULT_WHEP_BASE } from '../libs/streamUrls'
+import {
+  AVAILABLE_PLAYBACK_PROTOCOLS,
+  buildFlvPlaybackUrl,
+  buildHlsPlaybackUrl,
+  buildWhepUrl,
+  DEFAULT_WHEP_BASE,
+  type PlaybackProtocol
+} from '../libs/streamUrls'
 import { WHEPClient } from '../libs/whep'
 import css from '../css/player.module.scss'
 import { playerVolumeAtom } from '../storages/player'
@@ -42,10 +49,17 @@ export default function Room() {
 
   const [videoStream, setVideoStream] = useState<MediaStream>()
   const [playing, setPlaying] = useState<boolean>()
+  const [playbackProtocol, setPlaybackProtocol] = useState<PlaybackProtocol>('webrtc')
 
   const [browserFullScreen, setBrowserFullScreen] = useState<boolean>(false)
 
   const [playerVolume, setPlayerVolume] = useAtom(playerVolumeAtom)
+  const hlsUrl = room ? buildHlsPlaybackUrl(room) : undefined
+  const flvUrl = room ? buildFlvPlaybackUrl(room) : undefined
+  const playerUrl = playbackProtocol === 'webrtc'
+    ? (videoStream || exampleVideo)
+    : ((playbackProtocol === 'hls' ? hlsUrl : flvUrl) || exampleVideo)
+  const playerPlaying = playbackProtocol === 'webrtc' && !videoStream ? false : playing
 
   useEffect(() => {
     const { roomId } = params
@@ -71,7 +85,10 @@ export default function Room() {
 
   // setup whep client
   useEffect(() => {
-    if (!room) return
+    if (!room || playbackProtocol !== 'webrtc') {
+      setVideoStream(undefined)
+      return
+    }
 
     //Create peerconnection
     const pc = new RTCPeerConnection({
@@ -110,13 +127,19 @@ export default function Room() {
           window.pc = undefined
         })
     }
-  }, [room])
+  }, [room, playbackProtocol])
 
   useEffect(() => {
     if (videoStream && playing === undefined) {
       setPlaying(true)
     }
   }, [videoStream, playing])
+
+  useEffect(() => {
+    if (playbackProtocol !== 'webrtc' && room && playing === undefined) {
+      setPlaying(true)
+    }
+  }, [playbackProtocol, room, playing])
 
   return (
     <>
@@ -128,6 +151,28 @@ export default function Room() {
           marginTop: '20px'
         }}
       >
+        <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={playbackProtocol}
+            onChange={(_, value: PlaybackProtocol | null) => {
+              if (value) {
+                setPlaybackProtocol(value)
+              }
+            }}
+          >
+            {AVAILABLE_PLAYBACK_PROTOCOLS.map((protocol) => (
+              <ToggleButton
+                key={protocol}
+                value={protocol}
+                sx={{ minWidth: 82, textTransform: 'none' }}
+              >
+                {protocol}
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
+        </Box>
         <div
           className={
             browserFullScreen
@@ -139,14 +184,15 @@ export default function Room() {
             width="100%"
             height="100%"
             ref={videoRef}
-            muted={!videoStream || playerVolume <= 0}
+            muted={(playbackProtocol === 'webrtc' && !videoStream) || playerVolume <= 0}
             controls
-            playing={playing}
+            playing={playerPlaying}
             onPlay={() => setPlaying(true)}
             onPause={() => setPlaying(false)}
-            url={videoStream || exampleVideo}
+            url={playerUrl}
             preload="none"
             volume={playerVolume}
+            playsinline
             config={{
               attributes: {
                 preload: 'none',

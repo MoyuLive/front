@@ -1,4 +1,10 @@
-import { buildRtmpPublishUrl, buildWhepUrl } from './streamUrls.js'
+import {
+  AVAILABLE_PLAYBACK_PROTOCOLS,
+  buildFlvPlaybackUrl,
+  buildHlsPlaybackUrl,
+  buildRtmpPublishUrl,
+  buildWhepUrl
+} from './streamUrls.js'
 
 function assertEqual(actual: string, expected: string) {
   if (actual !== expected) {
@@ -14,4 +20,29 @@ assertEqual(
 assertEqual(
   buildRtmpPublishUrl('live.example.com:1935', 'STREAM', 'stream-token'),
   'rtmp://live.example.com:1935/live/STREAM?token=stream-token'
+)
+
+assertEqual(
+  buildHlsPlaybackUrl('room-1'),
+  '/live/room-1.m3u8'
+)
+
+assertEqual(
+  buildHlsPlaybackUrl('room 1'),
+  '/live/room%201.m3u8'
+)
+
+assertEqual(
+  buildFlvPlaybackUrl('room-1'),
+  '/live/room-1.flv'
+)
+
+assertEqual(
+  buildFlvPlaybackUrl('room 1'),
+  '/live/room%201.flv'
+)
+
+assertEqual(
+  AVAILABLE_PLAYBACK_PROTOCOLS.join(','),
+  'webrtc,hls,flv'
 )
