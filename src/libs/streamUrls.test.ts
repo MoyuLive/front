@@ -51,7 +51,7 @@ assertEqual(
 
 assertEqual(
   DEFAULT_PLAYBACK_PROTOCOLS.join(','),
-  'webrtc'
+  'flv'
 )
 
 assertEqual(
@@ -61,5 +61,5 @@ assertEqual(
 
 assertEqual(
   normalizePlaybackProtocols([]).join(','),
-  'webrtc'
+  'flv'
 )

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button,
   IconButton,
@@ -7,9 +7,11 @@ import {
   Slider,
   Tooltip
 } from '@mui/material'
+import FitScreenIcon from '@mui/icons-material/FitScreen'
 import FullscreenIcon from '@mui/icons-material/Fullscreen'
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit'
 import PauseIcon from '@mui/icons-material/Pause'
+import PictureInPictureAltIcon from '@mui/icons-material/PictureInPictureAlt'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import VolumeOffIcon from '@mui/icons-material/VolumeOff'
 import VolumeUpIcon from '@mui/icons-material/VolumeUp'
@@ -23,7 +25,7 @@ import {
   normalizePlaybackProtocols,
   type PlaybackProtocol
 } from '../../libs/streamUrls'
-import { playerVolumeAtom } from '../../storages/player'
+import { playerVolumeAtom, preferredPlaybackProtocolAtom } from '../../storages/player'
 
 import styles from './MoyuPlayer.module.scss'
 import { attachPlaybackSource, type PlaybackHandle } from './playbackAdapters'
@@ -33,6 +35,44 @@ import {
 } from './playerSources'
 
 const whepBaseURL = import.meta.env.VITE_WHEP_BASE || DEFAULT_WHEP_BASE
+
+function areProtocolsEqual(left: readonly PlaybackProtocol[], right: readonly PlaybackProtocol[]) {
+  return left.length === right.length && left.every((protocol, index) => protocol === right[index])
+}
+
+type FullscreenDocument = Document & {
+  fullscreenEnabled?: boolean
+  fullscreenElement?: Element | null
+  exitFullscreen?: () => Promise<void>
+  webkitExitFullscreen?: () => void
+  webkitFullscreenElement?: Element | null
+  webkitFullscreenEnabled?: boolean
+}
+
+type FullscreenPlayerElement = HTMLDivElement & {
+  webkitRequestFullscreen?: () => void
+}
+
+type FullscreenVideoElement = HTMLVideoElement & {
+  webkitDisplayingFullscreen?: boolean
+  webkitEnterFullscreen?: () => void
+  webkitSupportsFullscreen?: boolean
+}
+
+type PictureInPictureMode = 'inline' | 'picture-in-picture' | 'fullscreen'
+
+type PictureInPictureDocument = Document & {
+  pictureInPictureEnabled?: boolean
+  pictureInPictureElement?: Element | null
+  exitPictureInPicture?: () => Promise<void>
+}
+
+type PictureInPictureVideoElement = HTMLVideoElement & {
+  requestPictureInPicture?: () => Promise<unknown>
+  webkitPresentationMode?: PictureInPictureMode
+  webkitSetPresentationMode?: (mode: PictureInPictureMode) => void
+  webkitSupportsPresentationMode?: (mode: PictureInPictureMode) => boolean
+}
 
 function getIceServers(): RTCIceServer[] {
   const raw = import.meta.env.VITE_ICE_SERVERS
@@ -46,21 +86,75 @@ function getIceServers(): RTCIceServer[] {
   return [{ urls: 'stun:stun.l.google.com:19302' }]
 }
 
+function canUseNativeFullscreen(player: HTMLDivElement, video: HTMLVideoElement) {
+  const fullscreenDocument = document as FullscreenDocument
+  const fullscreenPlayer = player as FullscreenPlayerElement
+  const fullscreenVideo = video as FullscreenVideoElement
+  const standardFullscreen = fullscreenDocument.fullscreenEnabled === true &&
+    Boolean(player.requestFullscreen)
+  const webkitElementFullscreen = fullscreenDocument.webkitFullscreenEnabled === true &&
+    Boolean(fullscreenPlayer.webkitRequestFullscreen)
+  const webkitFullscreen = Boolean(fullscreenVideo.webkitEnterFullscreen)
+  return standardFullscreen || webkitElementFullscreen || webkitFullscreen
+}
+
+function isNativeFullscreenActive(player: HTMLDivElement, video: HTMLVideoElement) {
+  const fullscreenDocument = document as FullscreenDocument
+  const fullscreenVideo = video as FullscreenVideoElement
+  const fullscreenElement = fullscreenDocument.fullscreenElement || fullscreenDocument.webkitFullscreenElement
+  return fullscreenElement === player ||
+    Boolean(fullscreenElement && player.contains(fullscreenElement)) ||
+    fullscreenVideo.webkitDisplayingFullscreen === true
+}
+
+function canUsePictureInPicture(video: HTMLVideoElement) {
+  const pipDocument = document as PictureInPictureDocument
+  const pipVideo = video as PictureInPictureVideoElement
+  const standardPip = pipDocument.pictureInPictureEnabled !== false &&
+    Boolean(pipVideo.requestPictureInPicture)
+  const webkitPip = Boolean(pipVideo.webkitSupportsPresentationMode?.('picture-in-picture'))
+  return standardPip || webkitPip
+}
+
+function isPictureInPictureActive(video: HTMLVideoElement) {
+  const pipDocument = document as PictureInPictureDocument
+  const pipVideo = video as PictureInPictureVideoElement
+  return pipDocument.pictureInPictureElement === video || pipVideo.webkitPresentationMode === 'picture-in-picture'
+}
+
+function warnControlFailure(action: string, err?: unknown) {
+  console.warn(`${action} failed`, err)
+}
+
+function isPlaybackGestureError(err: unknown) {
+  if (!(err instanceof Error)) return false
+  return err.name === 'NotAllowedError' ||
+    err.message.toLowerCase().includes('user didn\'t interact')
+}
+
 export interface MoyuPlayerProps {
   roomId: string
 }
 
 export default function MoyuPlayer({ roomId }: MoyuPlayerProps) {
+  const playerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const playbackRef = useRef<PlaybackHandle>()
   const isPlayingRef = useRef(true)
   const isSwitchingSourceRef = useRef(false)
+  const volumeRef = useRef(0)
   const [volume, setVolume] = useAtom(playerVolumeAtom)
+  const [preferredProtocol, setPreferredProtocol] = useAtom(preferredPlaybackProtocolAtom)
   const [protocols, setProtocols] = useState<PlaybackProtocol[]>([])
   const [protocol, setProtocol] = useState<PlaybackProtocol>()
   const [isPlaying, setIsPlaying] = useState(true)
   const [isReady, setIsReady] = useState(false)
+  const [playbackNeedsGesture, setPlaybackNeedsGesture] = useState(false)
   const [isWebFullscreen, setIsWebFullscreen] = useState(false)
+  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false)
+  const [isPictureInPicture, setIsPictureInPicture] = useState(false)
+  const [nativeFullscreenSupported, setNativeFullscreenSupported] = useState(false)
+  const [pictureInPictureSupported, setPictureInPictureSupported] = useState(false)
   const [error, setError] = useState<string>()
   const [protocolMenuAnchor, setProtocolMenuAnchor] = useState<null | HTMLElement>(null)
   const token = useMemo(() => localStorage.getItem('jwt') || '', [])
@@ -75,11 +169,47 @@ export default function MoyuPlayer({ roomId }: MoyuPlayerProps) {
     [protocols, roomId, token]
   )
   const currentSource = sources.find((source) => source.protocol === protocol)
-  const isMuted = volume <= 0 || (protocol === 'webrtc' && !isReady)
+  const isMuted = volume <= 0
 
   useEffect(() => {
     isPlayingRef.current = isPlaying
   }, [isPlaying])
+
+  useEffect(() => {
+    volumeRef.current = volume
+  }, [volume])
+
+  const setPlaybackVolume = useCallback((value: number | ((current: number) => number)) => {
+    const nextVolume = typeof value === 'function' ? value(volumeRef.current) : value
+    volumeRef.current = nextVolume
+
+    const video = videoRef.current
+    if (video) {
+      video.volume = nextVolume
+      video.muted = nextVolume <= 0
+    }
+
+    setVolume(nextVolume)
+  }, [setVolume])
+
+  const playVideo = useCallback(async (video: HTMLVideoElement, userInitiated: boolean) => {
+    try {
+      video.muted = volumeRef.current <= 0
+      video.volume = volumeRef.current
+      await video.play()
+      setPlaybackNeedsGesture(false)
+      setError(undefined)
+      setIsPlaying(true)
+    } catch (err) {
+      video.pause()
+      setIsPlaying(false)
+      if (userInitiated && !isPlaybackGestureError(err)) {
+        setError(err instanceof Error ? err.message : 'Playback failed')
+      } else {
+        setPlaybackNeedsGesture(true)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -92,14 +222,16 @@ export default function MoyuPlayer({ roomId }: MoyuPlayerProps) {
       })
       .then((nextProtocols) => {
         if (cancelled) return
-        setProtocols(nextProtocols)
-        setProtocol((current) => pickInitialProtocol(nextProtocols, current))
+        setProtocols((current) => (
+          areProtocolsEqual(current, nextProtocols) ? current : nextProtocols
+        ))
+        setProtocol((current) => pickInitialProtocol(nextProtocols, current, preferredProtocol))
       })
 
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [preferredProtocol])
 
   useEffect(() => {
     const video = videoRef.current
@@ -109,6 +241,7 @@ export default function MoyuPlayer({ roomId }: MoyuPlayerProps) {
 
     let cancelled = false
     isSwitchingSourceRef.current = true
+    setPlaybackNeedsGesture(false)
     setIsReady(false)
     setError(undefined)
     playbackRef.current?.destroy()
@@ -124,7 +257,7 @@ export default function MoyuPlayer({ roomId }: MoyuPlayerProps) {
         isSwitchingSourceRef.current = false
         setIsReady(true)
         if (isPlayingRef.current) {
-          void video.play().catch(() => setIsPlaying(false))
+          void playVideo(video, false)
         }
       },
       onError: (err) => {
@@ -149,11 +282,12 @@ export default function MoyuPlayer({ roomId }: MoyuPlayerProps) {
 
     return () => {
       cancelled = true
+      isSwitchingSourceRef.current = true
       const handle = playbackRef.current
       playbackRef.current = undefined
       void handle?.destroy()
     }
-  }, [currentSource, roomId, token])
+  }, [currentSource, roomId, playVideo, token])
 
   useEffect(() => {
     const video = videoRef.current
@@ -170,6 +304,54 @@ export default function MoyuPlayer({ roomId }: MoyuPlayerProps) {
     }
   }, [isWebFullscreen])
 
+  useEffect(() => {
+    const player = playerRef.current
+    const video = videoRef.current
+    if (!player || !video) return
+    const playerElement = player
+    const videoElement = video
+
+    function syncNativeFullscreen() {
+      setIsNativeFullscreen(isNativeFullscreenActive(playerElement, videoElement))
+    }
+
+    setNativeFullscreenSupported(canUseNativeFullscreen(playerElement, videoElement))
+    syncNativeFullscreen()
+
+    document.addEventListener('fullscreenchange', syncNativeFullscreen)
+    videoElement.addEventListener('webkitbeginfullscreen', syncNativeFullscreen)
+    videoElement.addEventListener('webkitendfullscreen', syncNativeFullscreen)
+
+    return () => {
+      document.removeEventListener('fullscreenchange', syncNativeFullscreen)
+      videoElement.removeEventListener('webkitbeginfullscreen', syncNativeFullscreen)
+      videoElement.removeEventListener('webkitendfullscreen', syncNativeFullscreen)
+    }
+  }, [isReady])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    const videoElement = video
+
+    function syncPictureInPicture() {
+      setIsPictureInPicture(isPictureInPictureActive(videoElement))
+    }
+
+    setPictureInPictureSupported(canUsePictureInPicture(videoElement))
+    syncPictureInPicture()
+
+    videoElement.addEventListener('enterpictureinpicture', syncPictureInPicture)
+    videoElement.addEventListener('leavepictureinpicture', syncPictureInPicture)
+    videoElement.addEventListener('webkitpresentationmodechanged', syncPictureInPicture)
+
+    return () => {
+      videoElement.removeEventListener('enterpictureinpicture', syncPictureInPicture)
+      videoElement.removeEventListener('leavepictureinpicture', syncPictureInPicture)
+      videoElement.removeEventListener('webkitpresentationmodechanged', syncPictureInPicture)
+    }
+  }, [isReady])
+
   useHotkeys('esc', () => setIsWebFullscreen(false), [])
 
   async function togglePlaying() {
@@ -182,39 +364,118 @@ export default function MoyuPlayer({ roomId }: MoyuPlayerProps) {
       return
     }
 
-    try {
-      await video.play()
-      setIsPlaying(true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Playback failed')
-    }
+    await playVideo(video, true)
   }
 
   function toggleMuted() {
-    setVolume((current) => current > 0 ? 0 : 0.6)
+    setPlaybackVolume((current) => current > 0 ? 0 : 0.6)
   }
 
   function handleProtocolChange(nextProtocol: PlaybackProtocol) {
     setProtocolMenuAnchor(null)
     setProtocol(nextProtocol)
+    setPreferredProtocol(nextProtocol)
     setIsPlaying(true)
   }
 
+  async function toggleNativeFullscreen() {
+    const player = playerRef.current
+    const video = videoRef.current
+    if (!player || !video) return
+
+    const fullscreenDocument = document as FullscreenDocument
+    const fullscreenPlayer = player as FullscreenPlayerElement
+    const fullscreenVideo = video as FullscreenVideoElement
+
+    try {
+      if (fullscreenDocument.fullscreenElement || fullscreenDocument.webkitFullscreenElement) {
+        await fullscreenDocument.exitFullscreen?.()
+        fullscreenDocument.webkitExitFullscreen?.()
+        return
+      }
+
+      if (fullscreenDocument.fullscreenEnabled === true && player.requestFullscreen) {
+        await player.requestFullscreen()
+        return
+      }
+
+      if (
+        fullscreenDocument.webkitFullscreenEnabled === true &&
+        fullscreenPlayer.webkitRequestFullscreen
+      ) {
+        fullscreenPlayer.webkitRequestFullscreen()
+        return
+      }
+
+      if (fullscreenVideo.webkitEnterFullscreen) {
+        fullscreenVideo.webkitEnterFullscreen()
+      }
+    } catch (err) {
+      warnControlFailure('Native fullscreen', err)
+    }
+  }
+
+  async function togglePictureInPicture() {
+    const video = videoRef.current
+    if (!video) return
+
+    const pipDocument = document as PictureInPictureDocument
+    const pipVideo = video as PictureInPictureVideoElement
+
+    try {
+      if (isPictureInPicture) {
+        if (pipDocument.pictureInPictureElement) {
+          await pipDocument.exitPictureInPicture?.()
+          return
+        }
+
+        if (pipVideo.webkitSetPresentationMode) {
+          pipVideo.webkitSetPresentationMode('inline')
+        }
+        return
+      }
+
+      if (pipDocument.pictureInPictureEnabled !== false && pipVideo.requestPictureInPicture) {
+        await pipVideo.requestPictureInPicture()
+        return
+      }
+
+      if (
+        pipVideo.webkitSupportsPresentationMode?.('picture-in-picture') &&
+        pipVideo.webkitSetPresentationMode
+      ) {
+        pipVideo.webkitSetPresentationMode('picture-in-picture')
+      }
+    } catch (err) {
+      warnControlFailure('Picture in picture', err)
+    }
+  }
+
   return (
-    <div className={`${styles.player} ${isWebFullscreen ? styles.webFullscreen : ''}`}>
+    <div
+      ref={playerRef}
+      className={`${styles.player} ${isWebFullscreen ? styles.webFullscreen : ''}`}
+    >
       <video
         ref={videoRef}
         className={styles.video}
         playsInline
         muted={isMuted}
-        onPlay={() => setIsPlaying(true)}
+        onPlay={() => {
+          setPlaybackNeedsGesture(false)
+          setIsPlaying(true)
+        }}
         onPause={() => {
           if (!isSwitchingSourceRef.current) {
             setIsPlaying(false)
           }
         }}
         onVolumeChange={(event) => {
-          setVolume(event.currentTarget.volume)
+          const nextVolume = event.currentTarget.volume
+          if (Math.abs(nextVolume - volumeRef.current) > 0.001) {
+            volumeRef.current = nextVolume
+            setVolume(nextVolume)
+          }
         }}
         onError={() => {
           setError('Playback failed')
@@ -229,9 +490,20 @@ export default function MoyuPlayer({ roomId }: MoyuPlayerProps) {
         <div className={styles.errorLayer}>{error}</div>
       ) : null}
 
+      {isReady && !isPlaying && !error ? (
+        <button
+          className={styles.playOverlay}
+          type="button"
+          onClick={togglePlaying}
+        >
+          <PlayArrowIcon fontSize="large" />
+          {playbackNeedsGesture ? '点击播放' : '播放'}
+        </button>
+      ) : null}
+
       <div className={styles.controls}>
         <Tooltip title={isPlaying ? 'Pause' : 'Play'}>
-          <span>
+          <span className={styles.playButton}>
             <IconButton
               aria-label={isPlaying ? 'Pause' : 'Play'}
               color="inherit"
@@ -248,6 +520,7 @@ export default function MoyuPlayer({ roomId }: MoyuPlayerProps) {
           <Tooltip title={isMuted ? 'Unmute' : 'Mute'}>
             <IconButton
               aria-label={isMuted ? 'Unmute' : 'Mute'}
+              className={styles.volumeButton}
               color="inherit"
               onClick={toggleMuted}
               size="small"
@@ -257,13 +530,14 @@ export default function MoyuPlayer({ roomId }: MoyuPlayerProps) {
           </Tooltip>
           <Slider
             aria-label="Volume"
+            className={styles.volumeSlider}
             max={1}
             min={0}
             size="small"
             step={0.01}
             value={volume}
             onChange={(_, value) => {
-              setVolume(Array.isArray(value) ? value[0] : value)
+              setPlaybackVolume(Array.isArray(value) ? value[0] : value)
             }}
           />
         </div>
@@ -295,15 +569,44 @@ export default function MoyuPlayer({ roomId }: MoyuPlayerProps) {
           ))}
         </Menu>
 
-        <Tooltip title={isWebFullscreen ? 'Exit full screen' : 'Full screen'}>
+        <Tooltip title={isWebFullscreen ? 'Exit page full screen' : 'Page full screen'}>
           <IconButton
-            aria-label={isWebFullscreen ? 'Exit full screen' : 'Full screen'}
+            aria-label={isWebFullscreen ? 'Exit page full screen' : 'Page full screen'}
+            className={styles.pageFullscreenButton}
             color="inherit"
             onClick={() => setIsWebFullscreen((current) => !current)}
             size="small"
           >
-            {isWebFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
+            {isWebFullscreen ? <FullscreenExitIcon /> : <FitScreenIcon />}
           </IconButton>
+        </Tooltip>
+
+        <Tooltip title={isNativeFullscreen ? 'Exit full screen' : 'Full screen'}>
+          <span className={styles.nativeFullscreenButton}>
+            <IconButton
+              aria-label={isNativeFullscreen ? 'Exit full screen' : 'Full screen'}
+              color="inherit"
+              disabled={!nativeFullscreenSupported}
+              onClick={toggleNativeFullscreen}
+              size="small"
+            >
+              {isNativeFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
+            </IconButton>
+          </span>
+        </Tooltip>
+
+        <Tooltip title={isPictureInPicture ? 'Exit picture in picture' : 'Picture in picture'}>
+          <span className={styles.pictureInPictureButton}>
+            <IconButton
+              aria-label={isPictureInPicture ? 'Exit picture in picture' : 'Picture in picture'}
+              color="inherit"
+              disabled={!currentSource || !isReady || !pictureInPictureSupported}
+              onClick={togglePictureInPicture}
+              size="small"
+            >
+              <PictureInPictureAltIcon />
+            </IconButton>
+          </span>
         </Tooltip>
       </div>
     </div>

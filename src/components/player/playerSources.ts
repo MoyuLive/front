@@ -2,6 +2,7 @@ import {
   buildFlvPlaybackUrl,
   buildHlsPlaybackUrl,
   buildWhepUrl,
+  DEFAULT_PLAYBACK_PROTOCOLS,
   type PlaybackProtocol
 } from '../../libs/streamUrls.js'
 
@@ -31,10 +32,18 @@ export function buildMoyuPlayerSources({
 
 export function pickInitialProtocol(
   protocols: readonly PlaybackProtocol[],
-  current: PlaybackProtocol | undefined
+  current: PlaybackProtocol | undefined,
+  preferred: PlaybackProtocol | null | undefined
 ): PlaybackProtocol | undefined {
   if (current && protocols.includes(current)) {
     return current
+  }
+  if (preferred && protocols.includes(preferred)) {
+    return preferred
+  }
+  const [fallback] = DEFAULT_PLAYBACK_PROTOCOLS
+  if (fallback && protocols.includes(fallback)) {
+    return fallback
   }
   return protocols[0]
 }

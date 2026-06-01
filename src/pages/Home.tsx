@@ -71,6 +71,10 @@ export default function Home() {
     }
   }, [])
 
+  const openRoom = useCallback((room: LiveRoom) => {
+    navigate(`/live/${encodeURIComponent(room.stream_id)}`)
+  }, [navigate])
+
   useEffect(() => {
     fetchRooms()
     const timer = window.setInterval(fetchRooms, REFRESH_INTERVAL_MS)
@@ -141,7 +145,7 @@ export default function Home() {
                   }}
                 >
                   <CardActionArea
-                    onClick={() => navigate(`/live/${encodeURIComponent(room.stream_id)}`)}
+                    onClick={() => openRoom(room)}
                     sx={{ alignItems: 'stretch', display: 'flex', flexDirection: 'column', height: '100%' }}
                   >
                     <Box

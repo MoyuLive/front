@@ -49,13 +49,39 @@
     color: #ffb4ab;
 }
 
+.playOverlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+    min-width: 132px;
+    min-height: 48px;
+    padding: 10px 18px;
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    background: rgba(0, 0, 0, 0.68);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+}
+
+.playOverlay:hover {
+    background: rgba(0, 0, 0, 0.82);
+}
+
 .controls {
     position: absolute;
     right: 0;
     bottom: 0;
     left: 0;
     display: grid;
-    grid-template-columns: 40px minmax(96px, 180px) minmax(82px, auto) 40px;
+    grid-template-areas: "play volume protocol pageFullscreen nativeFullscreen pictureInPicture";
+    grid-template-columns: 40px minmax(96px, 180px) minmax(82px, 1fr) repeat(3, 40px);
     gap: 8px;
     align-items: center;
     min-height: 56px;
@@ -63,15 +89,69 @@
     background: linear-gradient(to top, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0));
 }
 
+.playButton {
+    grid-area: play;
+}
+
 .volume {
+    grid-area: volume;
     display: grid;
     grid-template-columns: 32px minmax(56px, 1fr);
     gap: 4px;
     align-items: center;
 }
 
+.volumeButton {
+    grid-column: 1;
+    z-index: 1;
+}
+
+.volumeSlider {
+    grid-column: 2;
+    min-width: 0;
+}
+
 .protocolButton {
+    grid-area: protocol;
     justify-self: end;
     min-width: 82px;
     text-transform: none !important;
+}
+
+.pageFullscreenButton {
+    grid-area: pageFullscreen;
+}
+
+.nativeFullscreenButton {
+    grid-area: nativeFullscreen;
+}
+
+.pictureInPictureButton {
+    grid-area: pictureInPicture;
+}
+
+.playButton,
+.nativeFullscreenButton,
+.pictureInPictureButton {
+    display: inline-flex;
+}
+
+@media (max-width: 560px) {
+    .controls {
+        grid-template-areas:
+            "play protocol pageFullscreen nativeFullscreen pictureInPicture"
+            "volume volume volume volume volume";
+        grid-template-columns: 40px minmax(72px, 1fr) repeat(3, 36px);
+        gap: 6px;
+        min-height: 88px;
+        padding: 8px;
+    }
+
+    .volume {
+        grid-template-columns: 32px minmax(0, 1fr);
+    }
+
+    .protocolButton {
+        min-width: 72px;
+    }
 }
