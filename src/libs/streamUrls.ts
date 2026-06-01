@@ -2,7 +2,6 @@ export const DEFAULT_WHEP_BASE = 'http://localhost:1985'
 export const DEFAULT_RTMP_HOST = 'localhost:1935'
 export const SUPPORTED_PLAYBACK_PROTOCOLS = ['webrtc', 'hls', 'flv'] as const
 export const DEFAULT_PLAYBACK_PROTOCOLS: PlaybackProtocol[] = ['webrtc']
-export const AVAILABLE_PLAYBACK_PROTOCOLS = SUPPORTED_PLAYBACK_PROTOCOLS
 
 export type PlaybackProtocol = typeof SUPPORTED_PLAYBACK_PROTOCOLS[number]
 
