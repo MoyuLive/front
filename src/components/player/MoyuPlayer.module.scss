@@ -70,6 +70,10 @@
     cursor: pointer;
 }
 
+.playOverlay:active {
+    background: rgba(0, 0, 0, 0.9);
+}
+
 .playOverlay:hover {
     background: rgba(0, 0, 0, 0.82);
 }
@@ -85,7 +89,7 @@
     gap: 8px;
     align-items: center;
     min-height: 56px;
-    padding: 8px 12px;
+    padding: 8px 12px max(8px, env(safe-area-inset-bottom));
     background: linear-gradient(to top, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0));
 }
 
@@ -136,15 +140,43 @@
     display: inline-flex;
 }
 
+@supports (height: 100dvh) {
+    .player {
+        max-height: 95dvh;
+        max-width: calc(95dvh * 16 / 9);
+    }
+
+    .webFullscreen {
+        height: 100dvh;
+    }
+}
+
 @media (max-width: 560px) {
+    .player {
+        max-width: 100%;
+        max-height: 100dvh;
+    }
+
+    .loadingLayer,
+    .errorLayer {
+        padding: 16px;
+        font-size: 0.875rem;
+    }
+
+    .playOverlay {
+        min-width: 112px;
+        min-height: 44px;
+        padding: 8px 14px;
+    }
+
     .controls {
         grid-template-areas:
             "play protocol pageFullscreen nativeFullscreen pictureInPicture"
             "volume volume volume volume volume";
-        grid-template-columns: 40px minmax(72px, 1fr) repeat(3, 36px);
+        grid-template-columns: 40px minmax(72px, 1fr) repeat(3, 40px);
         gap: 6px;
         min-height: 88px;
-        padding: 8px;
+        padding: 8px 8px max(8px, env(safe-area-inset-bottom));
     }
 
     .volume {
@@ -153,5 +185,6 @@
 
     .protocolButton {
         min-width: 72px;
+        font-size: 0.75rem !important;
     }
 }

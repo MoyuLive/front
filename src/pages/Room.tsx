@@ -1,4 +1,4 @@
-import { Container } from '@mui/material'
+import { Box, Container } from '@mui/material'
 import { useParams } from 'react-router-dom'
 
 import MoyuPlayer from '../components/player/MoyuPlayer'
@@ -8,14 +8,22 @@ export default function Room() {
 
   return (
     <Container
+      disableGutters
       maxWidth="xl"
       sx={{
-        alignContent: 'center',
+        alignItems: 'flex-start',
+        display: 'flex',
         justifyContent: 'center',
-        marginTop: '20px'
+        minHeight: { xs: '100dvh', sm: 'auto' },
+        mt: { xs: 0, sm: 2 },
+        px: { xs: 0, sm: 2 },
+        py: { xs: 0, sm: 3 },
+        width: '100%'
       }}
     >
-      <MoyuPlayer roomId={roomId ?? ''} />
+      <Box sx={{ mx: 'auto', width: '100%' }}>
+        <MoyuPlayer roomId={roomId ?? ''} />
+      </Box>
     </Container>
   )
 }

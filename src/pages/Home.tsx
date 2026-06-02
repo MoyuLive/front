@@ -9,7 +9,6 @@ import {
   Chip,
   CircularProgress,
   Container,
-  Grid,
   Stack,
   Typography
 } from '@mui/material'
@@ -85,19 +84,23 @@ export default function Home() {
   }, [fetchRooms])
 
   return (
-    <Container maxWidth="lg" sx={{ py: { xs: 3, md: 5 }, width: '100%' }}>
-      <Stack spacing={3}>
+    <Container maxWidth="lg" sx={{ px: { xs: 2, sm: 3 }, py: { xs: 2, md: 5 }, width: '100%' }}>
+      <Stack spacing={{ xs: 2.5, md: 3 }}>
         <Box
           sx={{
             alignItems: { xs: 'flex-start', sm: 'center' },
             display: 'flex',
             flexDirection: { xs: 'column', sm: 'row' },
-            gap: 2,
+            gap: { xs: 1.5, sm: 2 },
             justifyContent: 'space-between'
           }}
         >
-          <Box>
-            <Typography component="h1" variant="h4" sx={{ fontWeight: 700 }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography
+              component="h1"
+              variant="h4"
+              sx={{ fontSize: { xs: '1.75rem', sm: '2.125rem' }, fontWeight: 700 }}
+            >
               直播间
             </Typography>
             <Typography color="text.secondary" sx={{ mt: 0.5 }}>
@@ -108,6 +111,7 @@ export default function Home() {
             color="error"
             icon={<LiveTvIcon />}
             label={`${rooms.length} 个直播中`}
+            sx={{ alignSelf: { xs: 'flex-start', sm: 'center' } }}
             variant="outlined"
           />
         </Box>
@@ -128,7 +132,7 @@ export default function Home() {
               color: 'text.secondary',
               display: 'flex',
               justifyContent: 'center',
-              minHeight: 220,
+              minHeight: { xs: 180, sm: 220 },
               px: 3,
               textAlign: 'center'
             }}
@@ -136,73 +140,99 @@ export default function Home() {
             当前没有进行中的直播
           </Box>
         ) : (
-          <Grid container spacing={2.5}>
+          <Box
+            sx={{
+              display: 'grid',
+              gap: { xs: 2, sm: 2.5 },
+              gridTemplateColumns: {
+                xs: 'minmax(0, 1fr)',
+                sm: 'repeat(2, minmax(0, 1fr))',
+                md: 'repeat(3, minmax(0, 1fr))'
+              },
+              minWidth: 0,
+              width: '100%'
+            }}
+          >
             {rooms.map((room) => (
-              <Grid item key={`${room.app}/${room.stream_id}`} xs={12} sm={6} md={4}>
-                <Card
-                  sx={{
-                    border: '1px solid',
-                    borderColor: 'divider',
-                    borderRadius: 1,
-                    height: '100%'
-                  }}
+              <Card
+                key={`${room.app}/${room.stream_id}`}
+                sx={{
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  borderRadius: 1,
+                  height: '100%',
+                  minWidth: 0,
+                  width: '100%'
+                }}
+              >
+                <CardActionArea
+                  onClick={() => openRoom(room)}
+                  sx={{ alignItems: 'stretch', display: 'flex', flexDirection: 'column', height: '100%' }}
                 >
-                  <CardActionArea
-                    onClick={() => openRoom(room)}
-                    sx={{ alignItems: 'stretch', display: 'flex', flexDirection: 'column', height: '100%' }}
+                  <Box
+                    sx={{
+                      alignItems: 'center',
+                      aspectRatio: '16 / 9',
+                      bgcolor: '#111',
+                      borderBottom: '1px solid',
+                      borderColor: 'divider',
+                      display: 'flex',
+                      justifyContent: 'center',
+                      position: 'relative',
+                      width: '100%'
+                    }}
                   >
-                    <Box
-                      sx={{
-                        alignItems: 'center',
-                        aspectRatio: '16 / 9',
-                        bgcolor: '#111',
-                        borderBottom: '1px solid',
-                        borderColor: 'divider',
-                        display: 'flex',
-                        justifyContent: 'center',
-                        position: 'relative',
-                        width: '100%'
-                      }}
-                    >
-                      <Chip
-                        color="error"
-                        label="LIVE"
-                        size="small"
-                        sx={{ fontWeight: 700, left: 12, position: 'absolute', top: 12 }}
-                      />
-                      <LiveTvIcon sx={{ color: 'rgba(255,255,255,0.34)', fontSize: 56 }} />
-                    </Box>
+                    <Chip
+                      color="error"
+                      label="LIVE"
+                      size="small"
+                      sx={{ fontWeight: 700, left: 12, position: 'absolute', top: 12 }}
+                    />
+                    <LiveTvIcon sx={{ color: 'rgba(255,255,255,0.34)', fontSize: 56 }} />
+                  </Box>
 
-                    <CardContent sx={{ flexGrow: 1, width: '100%' }}>
-                      <Stack spacing={1.25}>
-                        <Typography
-                          component="h2"
-                          variant="h6"
-                          sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}
-                        >
-                          {room.stream_id}
+                  <CardContent sx={{ flexGrow: 1, p: { xs: 2, sm: 2 }, width: '100%' }}>
+                    <Stack spacing={1.25}>
+                      <Typography
+                        component="h2"
+                        variant="h6"
+                        sx={{
+                          fontSize: { xs: '1rem', sm: '1.25rem' },
+                          fontWeight: 700,
+                          lineHeight: 1.25,
+                          overflowWrap: 'anywhere'
+                        }}
+                      >
+                        {room.stream_id}
+                      </Typography>
+
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        sx={{ alignItems: 'flex-start', color: 'text.secondary', minWidth: 0 }}
+                      >
+                        <ScheduleIcon fontSize="small" sx={{ flexShrink: 0, mt: 0.25 }} />
+                        <Typography variant="body2" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                          {formatStartTime(room.started_at_ms)} · {formatDuration(room.live_ms)}
                         </Typography>
-
-                        <Stack direction="row" spacing={1} sx={{ color: 'text.secondary' }}>
-                          <ScheduleIcon fontSize="small" />
-                          <Typography variant="body2">
-                            {formatStartTime(room.started_at_ms)} · {formatDuration(room.live_ms)}
-                          </Typography>
-                        </Stack>
-
-                        <Stack direction="row" spacing={1} sx={{ color: 'text.secondary' }}>
-                          <SpeedIcon fontSize="small" />
-                          <Typography variant="body2">
-                            {formatResolution(room)} · {formatBitrate(room)}
-                          </Typography>
-                        </Stack>
                       </Stack>
-                    </CardContent>
-                  </CardActionArea>
-                </Card>
-              </Grid>
+
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        sx={{ alignItems: 'flex-start', color: 'text.secondary', minWidth: 0 }}
+                      >
+                        <SpeedIcon fontSize="small" sx={{ flexShrink: 0, mt: 0.25 }} />
+                        <Typography variant="body2" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                          {formatResolution(room)} · {formatBitrate(room)}
+                        </Typography>
+                      </Stack>
+                    </Stack>
+                  </CardContent>
+                </CardActionArea>
+              </Card>
             ))}
-          </Grid>
+          </Box>
         )}
       </Stack>
     </Container>
