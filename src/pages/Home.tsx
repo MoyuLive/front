@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Alert,
   Box,
+  Button,
   Card,
   CardActionArea,
   CardContent,
@@ -13,6 +14,7 @@ import {
   Typography
 } from '@mui/material'
 import LiveTvIcon from '@mui/icons-material/LiveTv'
+import RssFeedIcon from '@mui/icons-material/RssFeed'
 import ScheduleIcon from '@mui/icons-material/Schedule'
 import SpeedIcon from '@mui/icons-material/Speed'
 
@@ -53,6 +55,10 @@ function formatResolution(room: LiveRoom): string {
 function formatBitrate(room: LiveRoom): string {
   if (room.recv_kbps == null) return '码率未知'
   return `${room.recv_kbps} kbps`
+}
+
+function roomDisplayTitle(room: LiveRoom): string {
+  return room.title?.trim() || room.stream_id
 }
 
 export default function Home() {
@@ -107,13 +113,29 @@ export default function Home() {
               当前正在直播
             </Typography>
           </Box>
-          <Chip
-            color="error"
-            icon={<LiveTvIcon />}
-            label={`${rooms.length} 个直播中`}
-            sx={{ alignSelf: { xs: 'flex-start', sm: 'center' } }}
-            variant="outlined"
-          />
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ alignSelf: { xs: 'flex-start', sm: 'center' }, flexWrap: 'wrap', rowGap: 1 }}
+          >
+            <Chip
+              color="error"
+              icon={<LiveTvIcon />}
+              label={`${rooms.length} 个直播中`}
+              variant="outlined"
+            />
+            <Button
+              color="inherit"
+              component="a"
+              href="/feeds/live.xml"
+              size="small"
+              startIcon={<RssFeedIcon />}
+              sx={{ borderRadius: 1, minHeight: 32 }}
+              variant="outlined"
+            >
+              RSS
+            </Button>
+          </Stack>
         </Box>
 
         {error ? <Alert severity="error">{error}</Alert> : null}
@@ -203,8 +225,13 @@ export default function Home() {
                           overflowWrap: 'anywhere'
                         }}
                       >
-                        {room.stream_id}
+                        {roomDisplayTitle(room)}
                       </Typography>
+                      {roomDisplayTitle(room) !== room.stream_id ? (
+                        <Typography color="text.secondary" variant="body2" sx={{ overflowWrap: 'anywhere' }}>
+                          房间 {room.stream_id}
+                        </Typography>
+                      ) : null}
 
                       <Stack
                         direction="row"

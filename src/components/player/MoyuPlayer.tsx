@@ -29,6 +29,7 @@ import { playerVolumeAtom, preferredPlaybackProtocolAtom } from '../../storages/
 
 import styles from './MoyuPlayer.module.scss'
 import { attachPlaybackSource, type PlaybackHandle } from './playbackAdapters'
+import { shouldShowPageFullscreenControl } from './fullscreenControls'
 import {
   buildMoyuPlayerSources,
   pickInitialProtocol
@@ -569,17 +570,19 @@ export default function MoyuPlayer({ roomId }: MoyuPlayerProps) {
           ))}
         </Menu>
 
-        <Tooltip title={isWebFullscreen ? 'Exit page full screen' : 'Page full screen'}>
-          <IconButton
-            aria-label={isWebFullscreen ? 'Exit page full screen' : 'Page full screen'}
-            className={styles.pageFullscreenButton}
-            color="inherit"
-            onClick={() => setIsWebFullscreen((current) => !current)}
-            size="small"
-          >
-            {isWebFullscreen ? <FullscreenExitIcon /> : <FitScreenIcon />}
-          </IconButton>
-        </Tooltip>
+        {shouldShowPageFullscreenControl(isNativeFullscreen) ? (
+          <Tooltip title={isWebFullscreen ? 'Exit page full screen' : 'Page full screen'}>
+            <IconButton
+              aria-label={isWebFullscreen ? 'Exit page full screen' : 'Page full screen'}
+              className={styles.pageFullscreenButton}
+              color="inherit"
+              onClick={() => setIsWebFullscreen((current) => !current)}
+              size="small"
+            >
+              {isWebFullscreen ? <FullscreenExitIcon /> : <FitScreenIcon />}
+            </IconButton>
+          </Tooltip>
+        ) : null}
 
         <Tooltip title={isNativeFullscreen ? 'Exit full screen' : 'Full screen'}>
           <span className={styles.nativeFullscreenButton}>

@@ -13,16 +13,20 @@ import {
 } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import SaveIcon from '@mui/icons-material/Save'
 
-import { getStreamCode, resetStreamCode } from '../libs/api'
+import { getStreamCode, resetStreamCode, updateRoomTitle } from '../libs/api'
 import { buildRtmpPublishUrl, DEFAULT_RTMP_HOST } from '../libs/streamUrls'
 
 const RTMP_HOST = import.meta.env.VITE_RTMP_HOST || DEFAULT_RTMP_HOST
+const MAX_ROOM_TITLE_CHARS = 80
 
 export default function AdminStreamCode() {
   const [code, setCode] = useState('')
   const [streamId, setStreamId] = useState('')
+  const [roomTitle, setRoomTitle] = useState('')
   const [loading, setLoading] = useState(false)
+  const [savingTitle, setSavingTitle] = useState(false)
   const [snackbar, setSnackbar] = useState<{
     open: boolean
     message: string
@@ -34,6 +38,7 @@ export default function AdminStreamCode() {
       const data = await getStreamCode()
       setCode(data.stream_code)
       setStreamId(data.stream_id)
+      setRoomTitle(data.title ?? data.stream_id)
     } catch (err) {
       setSnackbar({
         open: true,
@@ -65,7 +70,25 @@ export default function AdminStreamCode() {
     }
   }
 
+  const handleSaveTitle = async () => {
+    setSavingTitle(true)
+    try {
+      const data = await updateRoomTitle(roomTitle)
+      setRoomTitle(data.title)
+      setSnackbar({ open: true, message: '直播间标题已保存', severity: 'success' })
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err instanceof Error ? err.message : '保存失败',
+        severity: 'error'
+      })
+    } finally {
+      setSavingTitle(false)
+    }
+  }
+
   const rtmpUrl = buildRtmpPublishUrl(RTMP_HOST, streamId || 'STREAM', code)
+  const titleLength = Array.from(roomTitle).length
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -111,7 +134,7 @@ export default function AdminStreamCode() {
           </Button>
 
           <Typography variant="subtitle1" gutterBottom>
-            直播间
+            直播间 ID
           </Typography>
           <TextField
             value={streamId}
@@ -120,6 +143,28 @@ export default function AdminStreamCode() {
             InputProps={{ readOnly: true }}
             sx={{ mb: 2 }}
           />
+
+          <Typography variant="subtitle1" gutterBottom>
+            直播间标题
+          </Typography>
+          <TextField
+            value={roomTitle}
+            fullWidth
+            helperText={`${titleLength}/${MAX_ROOM_TITLE_CHARS}`}
+            inputProps={{ maxLength: MAX_ROOM_TITLE_CHARS }}
+            onChange={(event) => setRoomTitle(event.target.value)}
+            placeholder={streamId || '直播间标题'}
+            sx={{ mb: 2 }}
+          />
+          <Button
+            disabled={savingTitle}
+            onClick={handleSaveTitle}
+            startIcon={<SaveIcon />}
+            sx={{ mb: 3 }}
+            variant="contained"
+          >
+            {savingTitle ? '保存中...' : '保存标题'}
+          </Button>
 
           <Typography variant="subtitle1" gutterBottom>
             推流地址 (RTMP)

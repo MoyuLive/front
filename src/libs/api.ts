@@ -121,6 +121,7 @@ export interface StreamInfo {
 
 export interface LiveRoom {
   stream_id: string
+  title: string
   app: string
   status: string
   started_at_ms: number | null
@@ -135,6 +136,13 @@ export interface StreamCodeInfo {
   stream_code: string
   stream_id: string
   username: string
+  title?: string
+}
+
+export interface RoomTitleInfo {
+  stream_id: string
+  username: string
+  title: string
 }
 
 export interface ServerStatus {
@@ -173,6 +181,17 @@ export async function resetStreamCode(): Promise<StreamCodeInfo> {
   })
   if (res.code !== 0) {
     throw new Error(res.msg || '重置推流码失败')
+  }
+  return res.data
+}
+
+export async function updateRoomTitle(title: string): Promise<RoomTitleInfo> {
+  const res = await request<RoomTitleInfo>('/api/live/room/title', {
+    method: 'PUT',
+    body: JSON.stringify({ title }),
+  })
+  if (res.code !== 0) {
+    throw new Error(res.msg || '保存直播间标题失败')
   }
   return res.data
 }
