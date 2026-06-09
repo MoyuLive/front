@@ -1,32 +1,89 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
+  Alert,
   Box,
+  Button,
   Card,
   CardContent,
-  Typography,
-  Button,
-  TextField,
-  Snackbar,
-  Alert,
+  Chip,
+  CircularProgress,
+  Divider,
+  IconButton,
   InputAdornment,
-  IconButton
+  Snackbar,
+  Stack,
+  TextField,
+  Typography
 } from '@mui/material'
-import RefreshIcon from '@mui/icons-material/Refresh'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
 
-import { getStreamCode, resetStreamCode, updateRoomTitle } from '../libs/api'
-import { buildRtmpPublishUrl, DEFAULT_RTMP_HOST } from '../libs/streamUrls'
+import {
+  getPublishProtocols,
+  getStreamCode,
+  resetStreamCode,
+  updateRoomTitle
+} from '../libs/api'
+import {
+  buildRtmpPublishUrl,
+  buildRtmpServerUrl,
+  buildRtmpStreamKey,
+  buildSrtPublishUrl,
+  buildSrtStreamId,
+  buildWhipPublishUrl,
+  DEFAULT_RTMP_HOST,
+  DEFAULT_SRT_HOST,
+  DEFAULT_WHIP_BASE,
+  normalizePublishProtocols,
+  PublishProtocol
+} from '../libs/streamUrls'
 
 const RTMP_HOST = import.meta.env.VITE_RTMP_HOST || DEFAULT_RTMP_HOST
+const WHIP_BASE =
+  import.meta.env.VITE_WHIP_BASE || import.meta.env.VITE_STREAMSERVER || DEFAULT_WHIP_BASE
+const SRT_HOST = import.meta.env.VITE_SRT_HOST || DEFAULT_SRT_HOST
 const MAX_ROOM_TITLE_CHARS = 80
+
+interface CopyFieldProps {
+  label: string
+  value: string
+  multiline?: boolean
+  onCopy: (text: string) => void
+}
+
+function CopyField({ label, value, multiline = false, onCopy }: CopyFieldProps) {
+  return (
+    <TextField
+      label={label}
+      value={value}
+      fullWidth
+      variant="outlined"
+      size="small"
+      multiline={multiline}
+      maxRows={multiline ? 3 : undefined}
+      InputProps={{
+        readOnly: true,
+        endAdornment: (
+          <InputAdornment position="end">
+            <IconButton onClick={() => onCopy(value)} edge="end" disabled={!value}>
+              <ContentCopyIcon />
+            </IconButton>
+          </InputAdornment>
+        )
+      }}
+    />
+  )
+}
 
 export default function AdminStreamCode() {
   const [code, setCode] = useState('')
   const [streamId, setStreamId] = useState('')
   const [roomTitle, setRoomTitle] = useState('')
+  const [publishProtocols, setPublishProtocols] = useState<PublishProtocol[]>(['rtmp'])
   const [loading, setLoading] = useState(false)
   const [savingTitle, setSavingTitle] = useState(false)
+  const [protocolsLoading, setProtocolsLoading] = useState(false)
   const [snackbar, setSnackbar] = useState<{
     open: boolean
     message: string
@@ -48,9 +105,27 @@ export default function AdminStreamCode() {
     }
   }, [])
 
+  const fetchPublishProtocols = useCallback(async () => {
+    setProtocolsLoading(true)
+    try {
+      const data = await getPublishProtocols()
+      setPublishProtocols(normalizePublishProtocols(data.protocols))
+    } catch (err) {
+      setPublishProtocols(normalizePublishProtocols([]))
+      setSnackbar({
+        open: true,
+        message: err instanceof Error ? err.message : '获取推流协议失败',
+        severity: 'error'
+      })
+    } finally {
+      setProtocolsLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     fetchCode()
-  }, [fetchCode])
+    fetchPublishProtocols()
+  }, [fetchCode, fetchPublishProtocols])
 
   const handleReset = async () => {
     setLoading(true)
@@ -87,111 +162,123 @@ export default function AdminStreamCode() {
     }
   }
 
-  const rtmpUrl = buildRtmpPublishUrl(RTMP_HOST, streamId || 'STREAM', code)
-  const titleLength = Array.from(roomTitle).length
-
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {
       setSnackbar({ open: true, message: '已复制到剪贴板', severity: 'success' })
     })
   }
 
+  const streamName = streamId || 'STREAM'
+  const rtmpServer = buildRtmpServerUrl(RTMP_HOST)
+  const rtmpStreamKey = buildRtmpStreamKey(streamName, code)
+  const rtmpUrl = buildRtmpPublishUrl(RTMP_HOST, streamName, code)
+  const whipUrl = buildWhipPublishUrl(WHIP_BASE, streamName, code)
+  const srtUrl = buildSrtPublishUrl(SRT_HOST, streamName, code)
+  const srtStreamId = buildSrtStreamId(streamName, code)
+  const titleLength = Array.from(roomTitle).length
+
   return (
     <Box>
       <Typography variant="h5" gutterBottom>
         推流码管理
       </Typography>
-      <Card sx={{ maxWidth: 600 }}>
-        <CardContent>
-          <Typography variant="subtitle1" gutterBottom>
-            当前推流码
-          </Typography>
-          <TextField
-            value={code}
-            fullWidth
-            variant="outlined"
-            InputProps={{
-              readOnly: true,
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton onClick={() => handleCopy(code)} edge="end">
-                    <ContentCopyIcon />
-                  </IconButton>
-                </InputAdornment>
-              )
-            }}
-            sx={{ mb: 2 }}
-          />
-          <Button
-            variant="contained"
-            color="warning"
-            onClick={handleReset}
-            disabled={loading}
-            startIcon={<RefreshIcon />}
-            sx={{ mb: 3 }}
-          >
-            {loading ? '重置中...' : '重置推流码'}
-          </Button>
 
-          <Typography variant="subtitle1" gutterBottom>
-            直播间 ID
-          </Typography>
-          <TextField
-            value={streamId}
-            fullWidth
-            variant="outlined"
-            InputProps={{ readOnly: true }}
-            sx={{ mb: 2 }}
-          />
+      <Stack spacing={3} sx={{ maxWidth: 820 }}>
+        <Card>
+          <CardContent>
+            <Stack spacing={2.5}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" gap={2}>
+                <Typography variant="h6">直播身份</Typography>
+                <Button
+                  variant="contained"
+                  color="warning"
+                  onClick={handleReset}
+                  disabled={loading}
+                  startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <RefreshIcon />}
+                >
+                  重置推流码
+                </Button>
+              </Stack>
 
-          <Typography variant="subtitle1" gutterBottom>
-            直播间标题
-          </Typography>
-          <TextField
-            value={roomTitle}
-            fullWidth
-            helperText={`${titleLength}/${MAX_ROOM_TITLE_CHARS}`}
-            inputProps={{ maxLength: MAX_ROOM_TITLE_CHARS }}
-            onChange={(event) => setRoomTitle(event.target.value)}
-            placeholder={streamId || '直播间标题'}
-            sx={{ mb: 2 }}
-          />
-          <Button
-            disabled={savingTitle}
-            onClick={handleSaveTitle}
-            startIcon={<SaveIcon />}
-            sx={{ mb: 3 }}
-            variant="contained"
-          >
-            {savingTitle ? '保存中...' : '保存标题'}
-          </Button>
+              <CopyField label="推流码" value={code} onCopy={handleCopy} />
+              <CopyField label="直播间 ID" value={streamId} onCopy={handleCopy} />
 
-          <Typography variant="subtitle1" gutterBottom>
-            推流地址 (RTMP)
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            请将以下地址配置到 OBS 或其他推流软件中：
-          </Typography>
-          <TextField
-            value={rtmpUrl}
-            fullWidth
-            variant="outlined"
-            size="small"
-            multiline
-            maxRows={2}
-            InputProps={{
-              readOnly: true,
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton onClick={() => handleCopy(rtmpUrl)} edge="end">
-                    <ContentCopyIcon />
-                  </IconButton>
-                </InputAdornment>
-              )
-            }}
-          />
-        </CardContent>
-      </Card>
+              <Box>
+                <TextField
+                  label="直播间标题"
+                  value={roomTitle}
+                  fullWidth
+                  helperText={`${titleLength}/${MAX_ROOM_TITLE_CHARS}`}
+                  inputProps={{ maxLength: MAX_ROOM_TITLE_CHARS }}
+                  onChange={(event) => setRoomTitle(event.target.value)}
+                  placeholder={streamId || '直播间标题'}
+                  sx={{ mb: 1.5 }}
+                />
+                <Button
+                  disabled={savingTitle}
+                  onClick={handleSaveTitle}
+                  startIcon={savingTitle ? <CircularProgress size={18} /> : <SaveIcon />}
+                  variant="contained"
+                >
+                  保存标题
+                </Button>
+              </Box>
+            </Stack>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent>
+            <Stack spacing={2.5}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" gap={2}>
+                <Typography variant="h6">推流连接</Typography>
+                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                  {protocolsLoading && <Chip label="加载中" size="small" />}
+                  {publishProtocols.map((protocol) => (
+                    <Chip key={protocol} label={protocol.toUpperCase()} size="small" />
+                  ))}
+                </Stack>
+              </Stack>
+
+              {publishProtocols.includes('rtmp') && (
+                <Stack spacing={1.5}>
+                  <Typography variant="subtitle2">RTMP</Typography>
+                  <CopyField label="OBS 服务器" value={rtmpServer} onCopy={handleCopy} />
+                  <CopyField label="OBS 串流密钥" value={rtmpStreamKey} onCopy={handleCopy} multiline />
+                  <CopyField label="完整 URL" value={rtmpUrl} onCopy={handleCopy} multiline />
+                </Stack>
+              )}
+
+              {publishProtocols.includes('whip') && (
+                <>
+                  <Divider />
+                  <Stack spacing={1.5}>
+                    <Typography variant="subtitle2">WHIP</Typography>
+                    <CopyField label="Endpoint" value={whipUrl} onCopy={handleCopy} multiline />
+                    <CopyField label="Bearer Token" value={code} onCopy={handleCopy} />
+                  </Stack>
+                </>
+              )}
+
+              {publishProtocols.includes('srt') && (
+                <>
+                  <Divider />
+                  <Stack spacing={1.5}>
+                    <Typography variant="subtitle2">SRT</Typography>
+                    <CopyField label="URL" value={srtUrl} onCopy={handleCopy} multiline />
+                    <CopyField label="Stream ID" value={srtStreamId} onCopy={handleCopy} multiline />
+                  </Stack>
+                </>
+              )}
+
+              {publishProtocols.length === 0 && (
+                <Alert severity="warning">未启用推流协议</Alert>
+              )}
+            </Stack>
+          </CardContent>
+        </Card>
+      </Stack>
+
       <Snackbar
         open={snackbar.open}
         autoHideDuration={3000}

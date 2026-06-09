@@ -1,33 +1,48 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  Paper,
+  Snackbar,
+  Switch,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
-  Button,
-  Typography,
-  Box,
   TextField,
-  Snackbar,
-  Alert,
-  CircularProgress,
-  Chip,
-  Tooltip
+  Tooltip,
+  Typography
 } from '@mui/material'
-import DeleteIcon from '@mui/icons-material/Delete'
 import AddIcon from '@mui/icons-material/Add'
+import DeleteIcon from '@mui/icons-material/Delete'
 
-import { listForwardRules, addForwardRule, deleteForwardRule, ForwardRule } from '../libs/api'
+import {
+  addForwardRule,
+  deleteForwardRule,
+  ForwardRule,
+  listForwardRules,
+  updateForwardRule
+} from '../libs/api'
 
 export default function AdminForwardRules() {
   const [rules, setRules] = useState<ForwardRule[]>([])
   const [loading, setLoading] = useState(false)
   const [adding, setAdding] = useState(false)
-  const [deleting, setDeleting] = useState<number | null>(null)
-  const [streamFilter, setStreamFilter] = useState('')
+  const [savingRuleId, setSavingRuleId] = useState<number | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<ForwardRule | null>(null)
+  const [loadError, setLoadError] = useState('')
+  const [streamFilter, setStreamFilter] = useState('*')
   const [targetUrl, setTargetUrl] = useState('')
   const [snackbar, setSnackbar] = useState<{
     open: boolean
@@ -37,11 +52,14 @@ export default function AdminForwardRules() {
 
   const fetchRules = useCallback(async () => {
     setLoading(true)
+    setLoadError('')
     try {
       const data = await listForwardRules()
       setRules(data)
     } catch (err) {
-      console.error('Failed to fetch forward rules:', err)
+      const message = err instanceof Error ? err.message : '获取转发规则失败'
+      setLoadError(message)
+      setSnackbar({ open: true, message, severity: 'error' })
     } finally {
       setLoading(false)
     }
@@ -52,17 +70,26 @@ export default function AdminForwardRules() {
   }, [fetchRules])
 
   const handleAdd = async () => {
-    if (!streamFilter.trim() || !targetUrl.trim()) {
+    const nextFilter = streamFilter.trim()
+    const nextUrl = targetUrl.trim()
+    if (!nextFilter || !nextUrl) {
       setSnackbar({ open: true, message: '流过滤器和目标URL不能为空', severity: 'error' })
       return
     }
+    if (
+      rules.some((rule) => rule.stream_filter === nextFilter && rule.target_url === nextUrl)
+    ) {
+      setSnackbar({ open: true, message: '相同转发规则已存在', severity: 'error' })
+      return
+    }
+
     setAdding(true)
     try {
-      await addForwardRule(streamFilter.trim(), targetUrl.trim())
+      const created = await addForwardRule(nextFilter, nextUrl)
+      setRules((prev) => [...prev, created].sort((a, b) => a.id - b.id))
       setSnackbar({ open: true, message: '转发规则已添加', severity: 'success' })
-      setStreamFilter('')
+      setStreamFilter('*')
       setTargetUrl('')
-      fetchRules()
     } catch (err) {
       setSnackbar({
         open: true,
@@ -74,12 +101,36 @@ export default function AdminForwardRules() {
     }
   }
 
-  const handleDelete = async (id: number) => {
-    setDeleting(id)
+  const handleToggle = async (rule: ForwardRule) => {
+    setSavingRuleId(rule.id)
     try {
-      await deleteForwardRule(id)
+      const updated = await updateForwardRule(rule.id, { enabled: !rule.enabled })
+      setRules((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+      setSnackbar({
+        open: true,
+        message: updated.enabled ? '转发规则已启用' : '转发规则已禁用',
+        severity: 'success'
+      })
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err instanceof Error ? err.message : '更新失败',
+        severity: 'error'
+      })
+    } finally {
+      setSavingRuleId(null)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+
+    setDeleting(true)
+    try {
+      await deleteForwardRule(deleteTarget.id)
+      setRules((prev) => prev.filter((rule) => rule.id !== deleteTarget.id))
       setSnackbar({ open: true, message: '转发规则已删除', severity: 'success' })
-      fetchRules()
+      setDeleteTarget(null)
     } catch (err) {
       setSnackbar({
         open: true,
@@ -87,7 +138,7 @@ export default function AdminForwardRules() {
         severity: 'error'
       })
     } finally {
-      setDeleting(null)
+      setDeleting(false)
     }
   }
 
@@ -97,6 +148,10 @@ export default function AdminForwardRules() {
         转发管理
       </Typography>
 
+      <Alert severity="info" sx={{ mb: 2 }}>
+        SRS 在建立转发时读取规则；已在播的流需要重新推流才会应用新增目标。
+      </Alert>
+
       <Paper sx={{ p: 2, mb: 3 }}>
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <TextField
@@ -104,22 +159,25 @@ export default function AdminForwardRules() {
             size="small"
             value={streamFilter}
             onChange={(e) => setStreamFilter(e.target.value)}
-            placeholder="* 或 live/room123"
-            sx={{ minWidth: 200 }}
+            placeholder="* / live/* / live/room123"
+            helperText="支持 *、stream、app/*、app/stream"
+            sx={{ width: 260 }}
           />
           <TextField
             label="目标URL"
             size="small"
             value={targetUrl}
             onChange={(e) => setTargetUrl(e.target.value)}
-            placeholder="rtmp://xxx:1935/live/stream"
-            sx={{ minWidth: 280, flexGrow: 1 }}
+            placeholder="rtmp://cdn.example.com/{app}/{stream}"
+            helperText="RTMP 目标，可使用 {app} 和 {stream}"
+            sx={{ minWidth: 320, flexGrow: 1 }}
           />
           <Button
             variant="contained"
             startIcon={adding ? <CircularProgress size={18} color="inherit" /> : <AddIcon />}
             onClick={handleAdd}
             disabled={adding}
+            sx={{ height: 40 }}
           >
             添加
           </Button>
@@ -130,6 +188,10 @@ export default function AdminForwardRules() {
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
           <CircularProgress />
         </Box>
+      ) : loadError ? (
+        <Alert severity="error" action={<Button onClick={fetchRules}>重试</Button>}>
+          {loadError}
+        </Alert>
       ) : rules.length === 0 ? (
         <Typography color="text.secondary" sx={{ mt: 4, textAlign: 'center' }}>
           暂无转发规则
@@ -144,7 +206,7 @@ export default function AdminForwardRules() {
                 <TableCell>目标URL</TableCell>
                 <TableCell>状态</TableCell>
                 <TableCell>创建时间</TableCell>
-                <TableCell>操作</TableCell>
+                <TableCell align="right">操作</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -159,7 +221,7 @@ export default function AdminForwardRules() {
                       <Typography
                         variant="body2"
                         sx={{
-                          maxWidth: 300,
+                          maxWidth: 360,
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap'
@@ -170,30 +232,38 @@ export default function AdminForwardRules() {
                     </Tooltip>
                   </TableCell>
                   <TableCell>
-                    <Chip
-                      label={rule.enabled ? '启用' : '禁用'}
-                      size="small"
-                      color={rule.enabled ? 'success' : 'default'}
-                    />
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Switch
+                        checked={rule.enabled}
+                        size="small"
+                        onChange={() => handleToggle(rule)}
+                        disabled={savingRuleId !== null}
+                      />
+                      {savingRuleId === rule.id ? (
+                        <CircularProgress size={18} />
+                      ) : (
+                        <Chip
+                          label={rule.enabled ? '启用' : '禁用'}
+                          size="small"
+                          color={rule.enabled ? 'success' : 'default'}
+                        />
+                      )}
+                    </Box>
                   </TableCell>
                   <TableCell>{rule.created_at}</TableCell>
-                  <TableCell>
-                    <Button
-                      variant="contained"
-                      color="error"
-                      size="small"
-                      startIcon={
-                        deleting === rule.id ? (
-                          <CircularProgress size={18} color="inherit" />
-                        ) : (
-                          <DeleteIcon />
-                        )
-                      }
-                      onClick={() => handleDelete(rule.id)}
-                      disabled={deleting !== null}
-                    >
-                      删除
-                    </Button>
+                  <TableCell align="right">
+                    <Tooltip title="删除">
+                      <span>
+                        <IconButton
+                          color="error"
+                          size="small"
+                          onClick={() => setDeleteTarget(rule)}
+                          disabled={deleting || savingRuleId !== null}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
                   </TableCell>
                 </TableRow>
               ))}
@@ -201,6 +271,32 @@ export default function AdminForwardRules() {
           </Table>
         </TableContainer>
       )}
+
+      <Dialog open={deleteTarget !== null} onClose={() => setDeleteTarget(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>删除转发规则</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            {deleteTarget?.stream_filter}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
+            {deleteTarget?.target_url}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteTarget(null)} disabled={deleting}>
+            取消
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={handleDelete}
+            disabled={deleting}
+            startIcon={deleting ? <CircularProgress size={18} color="inherit" /> : <DeleteIcon />}
+          >
+            删除
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={snackbar.open}

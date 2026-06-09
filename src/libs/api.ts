@@ -158,6 +158,10 @@ export interface PlaybackProtocolsInfo {
   protocols: string[]
 }
 
+export interface PublishProtocolsInfo {
+  protocols: string[]
+}
+
 export async function refreshToken(): Promise<LoginResult> {
   try {
     const token = await refreshTokenInternal()
@@ -238,6 +242,14 @@ export async function getPlaybackProtocols(): Promise<PlaybackProtocolsInfo> {
   return res.data
 }
 
+export async function getPublishProtocols(): Promise<PublishProtocolsInfo> {
+  const res = await request<PublishProtocolsInfo>('/api/publish/protocols')
+  if (res.code !== 0) {
+    throw new Error(res.msg || '获取推流协议失败')
+  }
+  return res.data
+}
+
 export interface ForwardRule {
   id: number
   stream_filter: string
@@ -255,21 +267,47 @@ export async function listForwardRules(): Promise<ForwardRule[]> {
   return res.data
 }
 
-export async function addForwardRule(streamFilter: string, targetUrl: string): Promise<void> {
-  const res = await request<null>('/api/live/forward/rules', {
+export async function addForwardRule(streamFilter: string, targetUrl: string): Promise<ForwardRule> {
+  const res = await request<ForwardRule>('/api/live/forward/rules', {
     method: 'POST',
     body: JSON.stringify({ stream_filter: streamFilter, target_url: targetUrl }),
   })
   if (res.code !== 0) {
     throw new Error(res.msg || '添加转发规则失败')
   }
+  return res.data
 }
 
-export async function deleteForwardRule(id: number): Promise<void> {
-  const res = await request<null>(`/api/live/forward/rules/${id}`, {
+export interface UpdateForwardRuleParams {
+  stream_filter?: string
+  target_url?: string
+  enabled?: boolean
+}
+
+export async function updateForwardRule(
+  id: number,
+  params: UpdateForwardRuleParams
+): Promise<ForwardRule> {
+  const res = await request<ForwardRule>(`/api/live/forward/rules/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(params),
+  })
+  if (res.code !== 0) {
+    throw new Error(res.msg || '更新转发规则失败')
+  }
+  return res.data
+}
+
+export interface DeleteForwardRuleResult {
+  deleted: boolean
+}
+
+export async function deleteForwardRule(id: number): Promise<DeleteForwardRuleResult> {
+  const res = await request<DeleteForwardRuleResult>(`/api/live/forward/rules/${id}`, {
     method: 'DELETE',
   })
   if (res.code !== 0) {
     throw new Error(res.msg || '删除转发规则失败')
   }
+  return res.data
 }
