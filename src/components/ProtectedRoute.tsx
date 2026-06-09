@@ -1,20 +1,19 @@
 import { Navigate, Outlet } from 'react-router-dom'
 
-export default function ProtectedRoute() {
-  const token = localStorage.getItem('jwt')
-  if (!token) {
+import { decodeToken, UserRole } from '../libs/auth'
+
+interface ProtectedRouteProps {
+  roles?: UserRole[]
+}
+
+export default function ProtectedRoute({ roles }: ProtectedRouteProps) {
+  const payload = decodeToken()
+  if (!payload) {
     return <Navigate to="/login" replace />
   }
 
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]))
-    if (payload.exp && payload.exp * 1000 < Date.now()) {
-      localStorage.removeItem('jwt')
-      return <Navigate to="/login" replace />
-    }
-  } catch {
-    localStorage.removeItem('jwt')
-    return <Navigate to="/login" replace />
+  if (roles && !roles.includes(payload.role)) {
+    return <Navigate to="/admin" replace />
   }
 
   return <Outlet />

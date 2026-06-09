@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { type ReactNode, useState, useEffect, useCallback } from 'react'
 import {
   Alert,
   Box,
@@ -7,7 +7,6 @@ import {
   CardContent,
   Chip,
   CircularProgress,
-  Divider,
   IconButton,
   InputAdornment,
   Snackbar,
@@ -52,6 +51,11 @@ interface CopyFieldProps {
   onCopy: (text: string) => void
 }
 
+interface ProtocolSectionProps {
+  title: string
+  children: ReactNode
+}
+
 function CopyField({ label, value, multiline = false, onCopy }: CopyFieldProps) {
   return (
     <TextField
@@ -61,7 +65,7 @@ function CopyField({ label, value, multiline = false, onCopy }: CopyFieldProps) 
       variant="outlined"
       size="small"
       multiline={multiline}
-      maxRows={multiline ? 3 : undefined}
+      minRows={multiline ? 2 : undefined}
       InputProps={{
         readOnly: true,
         endAdornment: (
@@ -72,7 +76,43 @@ function CopyField({ label, value, multiline = false, onCopy }: CopyFieldProps) 
           </InputAdornment>
         )
       }}
+      sx={
+        multiline
+          ? {
+              '& .MuiInputBase-input': {
+                fontFamily:
+                  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+                overflowWrap: 'anywhere',
+                wordBreak: 'break-all'
+              },
+              '& textarea': {
+                overflow: 'hidden !important',
+                resize: 'none',
+                whiteSpace: 'pre-wrap'
+              }
+            }
+          : undefined
+      }
     />
+  )
+}
+
+function ProtocolSection({ title, children }: ProtocolSectionProps) {
+  return (
+    <Stack
+      spacing={1.5}
+      sx={{
+        minWidth: 0,
+        height: '100%',
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 1,
+        p: 2
+      }}
+    >
+      <Typography variant="subtitle2">{title}</Typography>
+      {children}
+    </Stack>
   )
 }
 
@@ -183,8 +223,8 @@ export default function AdminStreamCode() {
         推流码管理
       </Typography>
 
-      <Stack spacing={3} sx={{ maxWidth: 820 }}>
-        <Card>
+      <Stack spacing={3} sx={{ width: '100%', maxWidth: 1280 }}>
+        <Card sx={{ maxWidth: 820 }}>
           <CardContent>
             <Stack spacing={2.5}>
               <Stack direction="row" justifyContent="space-between" alignItems="center" gap={2}>
@@ -240,36 +280,36 @@ export default function AdminStreamCode() {
                 </Stack>
               </Stack>
 
-              {publishProtocols.includes('rtmp') && (
-                <Stack spacing={1.5}>
-                  <Typography variant="subtitle2">RTMP</Typography>
-                  <CopyField label="OBS 服务器" value={rtmpServer} onCopy={handleCopy} />
-                  <CopyField label="OBS 串流密钥" value={rtmpStreamKey} onCopy={handleCopy} multiline />
-                  <CopyField label="完整 URL" value={rtmpUrl} onCopy={handleCopy} multiline />
-                </Stack>
-              )}
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))',
+                  gap: 2,
+                  alignItems: 'stretch'
+                }}
+              >
+                {publishProtocols.includes('rtmp') && (
+                  <ProtocolSection title="RTMP">
+                    <CopyField label="OBS 服务器" value={rtmpServer} onCopy={handleCopy} />
+                    <CopyField label="OBS 串流密钥" value={rtmpStreamKey} onCopy={handleCopy} multiline />
+                    <CopyField label="完整 URL" value={rtmpUrl} onCopy={handleCopy} multiline />
+                  </ProtocolSection>
+                )}
 
-              {publishProtocols.includes('whip') && (
-                <>
-                  <Divider />
-                  <Stack spacing={1.5}>
-                    <Typography variant="subtitle2">WHIP</Typography>
+                {publishProtocols.includes('whip') && (
+                  <ProtocolSection title="WHIP">
                     <CopyField label="Endpoint" value={whipUrl} onCopy={handleCopy} multiline />
                     <CopyField label="Bearer Token" value={code} onCopy={handleCopy} />
-                  </Stack>
-                </>
-              )}
+                  </ProtocolSection>
+                )}
 
-              {publishProtocols.includes('srt') && (
-                <>
-                  <Divider />
-                  <Stack spacing={1.5}>
-                    <Typography variant="subtitle2">SRT</Typography>
+                {publishProtocols.includes('srt') && (
+                  <ProtocolSection title="SRT">
                     <CopyField label="URL" value={srtUrl} onCopy={handleCopy} multiline />
                     <CopyField label="Stream ID" value={srtStreamId} onCopy={handleCopy} multiline />
-                  </Stack>
-                </>
-              )}
+                  </ProtocolSection>
+                )}
+              </Box>
 
               {publishProtocols.length === 0 && (
                 <Alert severity="warning">未启用推流协议</Alert>

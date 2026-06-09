@@ -1,13 +1,11 @@
+import { clearToken, getToken, UserRole } from './auth'
+
 // API base URL — override in production via VITE_API_BASE env var
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:9081'
 
 // Token refresh coordination — prevents infinite 401 → refresh → 401 loops
 let isRefreshing = false
 let refreshSubscribers: Array<(token: string) => void> = []
-
-function getToken(): string | null {
-  return localStorage.getItem('jwt')
-}
 
 /** Raw fetch-based refresh — bypasses the request() interceptor to avoid loops */
 async function refreshTokenInternal(): Promise<string> {
@@ -58,7 +56,7 @@ async function request<T>(
         } catch {
           isRefreshing = false
           refreshSubscribers = []
-          localStorage.removeItem('jwt')
+          clearToken()
           window.location.href = '/login'
           return Promise.reject(new Error('Session expired'))
         }
@@ -90,6 +88,14 @@ export interface LoginResult {
   token: string
 }
 
+export interface AdminMe {
+  id: number
+  username: string
+  role: UserRole
+  is_admin: boolean
+  is_super_admin: boolean
+}
+
 export async function login(params: LoginParams): Promise<LoginResult> {
   const res = await request<LoginResult>('/api/account/login', {
     method: 'POST',
@@ -97,6 +103,14 @@ export async function login(params: LoginParams): Promise<LoginResult> {
   })
   if (res.code !== 0) {
     throw new Error(res.msg || '登录失败')
+  }
+  return res.data
+}
+
+export async function getAdminMe(): Promise<AdminMe> {
+  const res = await request<AdminMe>('/api/admin/me')
+  if (res.code !== 0) {
+    throw new Error(res.msg || '获取当前账号失败')
   }
   return res.data
 }
@@ -308,6 +322,163 @@ export async function deleteForwardRule(id: number): Promise<DeleteForwardRuleRe
   })
   if (res.code !== 0) {
     throw new Error(res.msg || '删除转发规则失败')
+  }
+  return res.data
+}
+
+export interface AdminUser {
+  id: number
+  username: string
+  role: UserRole
+  enabled: boolean
+  room_count: number
+}
+
+export interface CreateAdminUserParams {
+  username: string
+  password: string
+  role: UserRole
+  enabled?: boolean
+}
+
+export interface UpdateAdminUserParams {
+  username?: string
+  password?: string
+  role?: UserRole
+  enabled?: boolean
+}
+
+export async function listAdminUsers(): Promise<AdminUser[]> {
+  const res = await request<AdminUser[]>('/api/admin/users')
+  if (res.code !== 0) {
+    throw new Error(res.msg || '获取用户列表失败')
+  }
+  return res.data
+}
+
+export async function createAdminUser(params: CreateAdminUserParams): Promise<AdminUser> {
+  const res = await request<AdminUser>('/api/admin/users', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+  if (res.code !== 0) {
+    throw new Error(res.msg || '创建用户失败')
+  }
+  return res.data
+}
+
+export async function updateAdminUser(
+  id: number,
+  params: UpdateAdminUserParams
+): Promise<AdminUser> {
+  const res = await request<AdminUser>(`/api/admin/users/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(params),
+  })
+  if (res.code !== 0) {
+    throw new Error(res.msg || '更新用户失败')
+  }
+  return res.data
+}
+
+export async function deleteAdminUser(id: number): Promise<{ deleted: boolean }> {
+  const res = await request<{ deleted: boolean }>(`/api/admin/users/${id}`, {
+    method: 'DELETE',
+  })
+  if (res.code !== 0) {
+    throw new Error(res.msg || '删除用户失败')
+  }
+  return res.data
+}
+
+export interface AdminRoom {
+  id: number
+  user_id: number
+  username: string
+  stream_id: string
+  title: string
+  stream_code: string
+  enabled: boolean
+  status: 'live' | 'offline'
+  live_session: StreamInfo | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateAdminRoomParams {
+  user_id: number
+  stream_id: string
+  title?: string
+  enabled?: boolean
+}
+
+export interface UpdateAdminRoomParams {
+  user_id?: number
+  stream_id?: string
+  title?: string
+  enabled?: boolean
+}
+
+export async function listAdminRooms(): Promise<AdminRoom[]> {
+  const res = await request<AdminRoom[]>('/api/admin/rooms')
+  if (res.code !== 0) {
+    throw new Error(res.msg || '获取直播间列表失败')
+  }
+  return res.data
+}
+
+export async function createAdminRoom(params: CreateAdminRoomParams): Promise<AdminRoom> {
+  const res = await request<AdminRoom>('/api/admin/rooms', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+  if (res.code !== 0) {
+    throw new Error(res.msg || '创建直播间失败')
+  }
+  return res.data
+}
+
+export async function updateAdminRoom(
+  id: number,
+  params: UpdateAdminRoomParams
+): Promise<AdminRoom> {
+  const res = await request<AdminRoom>(`/api/admin/rooms/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(params),
+  })
+  if (res.code !== 0) {
+    throw new Error(res.msg || '更新直播间失败')
+  }
+  return res.data
+}
+
+export async function resetAdminRoomStreamCode(id: number): Promise<AdminRoom> {
+  const res = await request<AdminRoom>(`/api/admin/rooms/${id}/stream-code/reset`, {
+    method: 'POST',
+  })
+  if (res.code !== 0) {
+    throw new Error(res.msg || '重置推流链接失败')
+  }
+  return res.data
+}
+
+export async function deleteAdminRoom(id: number): Promise<{ deleted: boolean }> {
+  const res = await request<{ deleted: boolean }>(`/api/admin/rooms/${id}`, {
+    method: 'DELETE',
+  })
+  if (res.code !== 0) {
+    throw new Error(res.msg || '删除直播间失败')
+  }
+  return res.data
+}
+
+export async function stopAdminStream(streamId: string): Promise<{ stream_id: string; stopped: boolean }> {
+  const res = await request<{ stream_id: string; stopped: boolean }>(
+    `/api/admin/streams/${encodeURIComponent(streamId)}/stop`,
+    { method: 'POST' }
+  )
+  if (res.code !== 0) {
+    throw new Error(res.msg || '中断直播失败')
   }
   return res.data
 }
