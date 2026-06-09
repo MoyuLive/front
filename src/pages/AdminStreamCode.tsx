@@ -1,4 +1,11 @@
-import { type ReactNode, useState, useEffect, useCallback } from 'react'
+import {
+  type ChangeEvent,
+  type ReactNode,
+  useState,
+  useEffect,
+  useCallback,
+  useRef
+} from 'react'
 import {
   Alert,
   Box,
@@ -15,6 +22,9 @@ import {
   Typography
 } from '@mui/material'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import CloudUploadIcon from '@mui/icons-material/CloudUpload'
+import ImageIcon from '@mui/icons-material/Image'
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
 
@@ -22,6 +32,8 @@ import {
   getPublishProtocols,
   getStreamCode,
   resetStreamCode,
+  resolveApiAssetUrl,
+  updateRoomCover,
   updateRoomTitle
 } from '../libs/api'
 import {
@@ -37,12 +49,14 @@ import {
   normalizePublishProtocols,
   PublishProtocol
 } from '../libs/streamUrls'
+import MoyuPlayer from '../components/player/MoyuPlayer'
 
 const RTMP_HOST = import.meta.env.VITE_RTMP_HOST || DEFAULT_RTMP_HOST
 const WHIP_BASE =
   import.meta.env.VITE_WHIP_BASE || import.meta.env.VITE_STREAMSERVER || DEFAULT_WHIP_BASE
 const SRT_HOST = import.meta.env.VITE_SRT_HOST || DEFAULT_SRT_HOST
 const MAX_ROOM_TITLE_CHARS = 80
+const MAX_COVER_UPLOAD_BYTES = 5 * 1024 * 1024
 
 interface CopyFieldProps {
   label: string
@@ -116,13 +130,51 @@ function ProtocolSection({ title, children }: ProtocolSectionProps) {
   )
 }
 
+function captureVideoFrame(video: HTMLVideoElement): Promise<Blob> {
+  if (!video.videoWidth || !video.videoHeight || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    return Promise.reject(new Error('当前直播画面不可用'))
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = video.videoWidth
+  canvas.height = video.videoHeight
+  const context = canvas.getContext('2d')
+  if (!context) {
+    return Promise.reject(new Error('当前浏览器无法截取画面'))
+  }
+
+  try {
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+  } catch {
+    return Promise.reject(new Error('当前播放源不允许截取画面'))
+  }
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob)
+        } else {
+          reject(new Error('截取画面失败'))
+        }
+      },
+      'image/jpeg',
+      0.88
+    )
+  })
+}
+
 export default function AdminStreamCode() {
+  const coverInputRef = useRef<HTMLInputElement>(null)
   const [code, setCode] = useState('')
   const [streamId, setStreamId] = useState('')
   const [roomTitle, setRoomTitle] = useState('')
+  const [coverUrl, setCoverUrl] = useState('')
+  const [previewVideo, setPreviewVideo] = useState<HTMLVideoElement | null>(null)
   const [publishProtocols, setPublishProtocols] = useState<PublishProtocol[]>(['rtmp'])
   const [loading, setLoading] = useState(false)
   const [savingTitle, setSavingTitle] = useState(false)
+  const [savingCover, setSavingCover] = useState(false)
   const [protocolsLoading, setProtocolsLoading] = useState(false)
   const [snackbar, setSnackbar] = useState<{
     open: boolean
@@ -136,6 +188,7 @@ export default function AdminStreamCode() {
       setCode(data.stream_code)
       setStreamId(data.stream_id)
       setRoomTitle(data.title ?? data.stream_id)
+      setCoverUrl(data.cover_url ?? '')
     } catch (err) {
       setSnackbar({
         open: true,
@@ -173,6 +226,7 @@ export default function AdminStreamCode() {
       const data = await resetStreamCode()
       setCode(data.stream_code)
       setStreamId(data.stream_id)
+      setCoverUrl(data.cover_url ?? '')
       setSnackbar({ open: true, message: '推流码已重置', severity: 'success' })
     } catch (err) {
       setSnackbar({
@@ -202,6 +256,59 @@ export default function AdminStreamCode() {
     }
   }
 
+  const handleSaveCover = async (file: Blob) => {
+    if (file.size > MAX_COVER_UPLOAD_BYTES) {
+      setSnackbar({ open: true, message: '封面图片不能超过 5MB', severity: 'error' })
+      return
+    }
+
+    setSavingCover(true)
+    try {
+      const data = await updateRoomCover(file)
+      setCoverUrl(data.cover_url)
+      setSnackbar({ open: true, message: '直播间封面已保存', severity: 'success' })
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err instanceof Error ? err.message : '保存封面失败',
+        severity: 'error'
+      })
+    } finally {
+      setSavingCover(false)
+    }
+  }
+
+  const handleCoverFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      setSnackbar({ open: true, message: '请选择图片文件', severity: 'error' })
+      return
+    }
+
+    await handleSaveCover(file)
+  }
+
+  const handleCaptureCover = async () => {
+    if (!previewVideo) {
+      setSnackbar({ open: true, message: '直播预览未就绪', severity: 'error' })
+      return
+    }
+
+    try {
+      const blob = await captureVideoFrame(previewVideo)
+      await handleSaveCover(blob)
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err instanceof Error ? err.message : '截取画面失败',
+        severity: 'error'
+      })
+    }
+  }
+
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {
       setSnackbar({ open: true, message: '已复制到剪贴板', severity: 'success' })
@@ -216,6 +323,7 @@ export default function AdminStreamCode() {
   const srtUrl = buildSrtPublishUrl(SRT_HOST, streamName, code)
   const srtStreamId = buildSrtStreamId(streamName, code)
   const titleLength = Array.from(roomTitle).length
+  const resolvedCoverUrl = resolveApiAssetUrl(coverUrl)
 
   return (
     <Box>
@@ -263,6 +371,92 @@ export default function AdminStreamCode() {
                   保存标题
                 </Button>
               </Box>
+            </Stack>
+          </CardContent>
+        </Card>
+
+        <Card sx={{ maxWidth: 820 }}>
+          <CardContent>
+            <Stack spacing={2.5}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" gap={2}>
+                <Typography variant="h6">直播间封面</Typography>
+                {savingCover ? <CircularProgress size={22} /> : null}
+              </Stack>
+
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 2,
+                  gridTemplateColumns: { xs: '1fr', md: 'minmax(240px, 320px) 1fr' },
+                  minWidth: 0
+                }}
+              >
+                <Box
+                  sx={{
+                    alignItems: 'center',
+                    aspectRatio: '16 / 9',
+                    bgcolor: '#111',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    borderRadius: 1,
+                    color: 'rgba(255,255,255,0.56)',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                    position: 'relative',
+                    width: '100%'
+                  }}
+                >
+                  {resolvedCoverUrl ? (
+                    <Box
+                      alt=""
+                      component="img"
+                      src={resolvedCoverUrl}
+                      sx={{ height: '100%', objectFit: 'cover', width: '100%' }}
+                    />
+                  ) : (
+                    <Stack alignItems="center" spacing={1}>
+                      <ImageIcon fontSize="large" />
+                      <Typography variant="body2">未设置封面</Typography>
+                    </Stack>
+                  )}
+                </Box>
+
+                <Stack spacing={1.5} sx={{ alignSelf: 'center', minWidth: 0 }}>
+                  <input
+                    ref={coverInputRef}
+                    accept="image/jpeg,image/png,image/webp"
+                    hidden
+                    type="file"
+                    onChange={handleCoverFileChange}
+                  />
+                  <Button
+                    disabled={savingCover}
+                    onClick={() => coverInputRef.current?.click()}
+                    startIcon={<CloudUploadIcon />}
+                    variant="outlined"
+                  >
+                    上传图片
+                  </Button>
+                  <Button
+                    disabled={savingCover || !streamId}
+                    onClick={handleCaptureCover}
+                    startIcon={<PhotoCameraIcon />}
+                    variant="contained"
+                  >
+                    截取当前画面
+                  </Button>
+                </Stack>
+              </Box>
+
+              {streamId ? (
+                <Box sx={{ width: '100%' }}>
+                  <MoyuPlayer
+                    roomId={streamId}
+                    onVideoElementChange={setPreviewVideo}
+                  />
+                </Box>
+              ) : null}
             </Stack>
           </CardContent>
         </Card>

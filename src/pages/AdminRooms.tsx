@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Box,
@@ -30,8 +30,10 @@ import AddIcon from '@mui/icons-material/Add'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
+import ImageIcon from '@mui/icons-material/Image'
 import KeyIcon from '@mui/icons-material/Key'
 import StopIcon from '@mui/icons-material/Stop'
+import UploadIcon from '@mui/icons-material/Upload'
 
 import {
   AdminRoom,
@@ -41,8 +43,10 @@ import {
   listAdminRooms,
   listAdminUsers,
   resetAdminRoomStreamCode,
+  resolveApiAssetUrl,
   stopAdminStream,
-  updateAdminRoom
+  updateAdminRoom,
+  updateLiveRoomCover
 } from '../libs/api'
 import { buildRtmpStreamKey } from '../libs/streamUrls'
 
@@ -65,12 +69,14 @@ const emptyForm: RoomForm = {
 }
 
 export default function AdminRooms({ isSuperAdmin }: AdminRoomsProps) {
+  const coverInputRef = useRef<HTMLInputElement>(null)
   const [rooms, setRooms] = useState<AdminRoom[]>([])
   const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<AdminRoom | null>(null)
   const [form, setForm] = useState<RoomForm>(emptyForm)
+  const [coverTarget, setCoverTarget] = useState<AdminRoom | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminRoom | null>(null)
   const [snackbar, setSnackbar] = useState<{
     open: boolean
@@ -203,6 +209,43 @@ export default function AdminRooms({ isSuperAdmin }: AdminRoomsProps) {
     setSnackbar({ open: true, message: '推流码已复制', severity: 'success' })
   }
 
+  const openCoverUpload = (room: AdminRoom) => {
+    setCoverTarget(room)
+    coverInputRef.current?.click()
+  }
+
+  const handleCoverFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    const target = coverTarget
+    setCoverTarget(null)
+    if (!file || !target) return
+
+    if (!file.type.startsWith('image/')) {
+      setSnackbar({ open: true, message: '请选择图片文件', severity: 'error' })
+      return
+    }
+
+    setLoading(true)
+    try {
+      const updated = await updateLiveRoomCover(target.id, file)
+      setRooms((prev) =>
+        prev.map((room) =>
+          room.id === target.id ? { ...room, cover_url: updated.cover_url } : room
+        )
+      )
+      setSnackbar({ open: true, message: '封面已更新', severity: 'success' })
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err instanceof Error ? err.message : '上传封面失败',
+        severity: 'error'
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const confirmDelete = async () => {
     if (!deleteTarget) return
     setLoading(true)
@@ -238,11 +281,20 @@ export default function AdminRooms({ isSuperAdmin }: AdminRoomsProps) {
         ) : null}
       </Box>
 
+      <input
+        ref={coverInputRef}
+        accept="image/jpeg,image/png,image/webp"
+        hidden
+        type="file"
+        onChange={handleCoverFileChange}
+      />
+
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
             <TableRow>
               <TableCell>直播间ID</TableCell>
+              <TableCell>封面</TableCell>
               <TableCell>标题</TableCell>
               <TableCell>用户</TableCell>
               <TableCell>状态</TableCell>
@@ -251,56 +303,91 @@ export default function AdminRooms({ isSuperAdmin }: AdminRoomsProps) {
             </TableRow>
           </TableHead>
           <TableBody>
-            {sortedRooms.map((room) => (
-              <TableRow key={room.id}>
-                <TableCell>{room.stream_id}</TableCell>
-                <TableCell>{room.title || '-'}</TableCell>
-                <TableCell>{room.username || room.user_id}</TableCell>
-                <TableCell>
-                  <Chip
-                    size="small"
-                    color={room.status === 'live' ? 'success' : 'default'}
-                    label={room.status === 'live' ? '直播中' : room.enabled ? '离线' : '停用'}
-                  />
-                </TableCell>
-                <TableCell sx={{ fontFamily: 'monospace' }}>{room.stream_code}</TableCell>
-                <TableCell align="right">
-                  <Tooltip title="复制OBS串流密钥">
-                    <IconButton onClick={() => copyStreamKey(room)}>
-                      <ContentCopyIcon />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="编辑">
-                    <IconButton onClick={() => openEdit(room)}>
-                      <EditIcon />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="重置推流链接">
-                    <IconButton onClick={() => resetCode(room)} disabled={loading}>
-                      <KeyIcon />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="中断直播">
-                    <span>
-                      <IconButton
-                        color="error"
-                        onClick={() => stopStream(room)}
-                        disabled={loading || room.status !== 'live'}
-                      >
-                        <StopIcon />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  {isSuperAdmin ? (
-                    <Tooltip title="删除">
-                      <IconButton color="error" onClick={() => setDeleteTarget(room)}>
-                        <DeleteIcon />
+            {sortedRooms.map((room) => {
+              const coverUrl = resolveApiAssetUrl(room.cover_url)
+
+              return (
+                <TableRow key={room.id}>
+                  <TableCell>{room.stream_id}</TableCell>
+                  <TableCell>
+                    <Box
+                      sx={{
+                        alignItems: 'center',
+                        bgcolor: '#111',
+                        borderRadius: 1,
+                        color: 'rgba(255,255,255,0.56)',
+                        display: 'flex',
+                        height: 45,
+                        justifyContent: 'center',
+                        overflow: 'hidden',
+                        width: 80
+                      }}
+                    >
+                      {coverUrl ? (
+                        <Box
+                          alt=""
+                          component="img"
+                          src={coverUrl}
+                          sx={{ height: '100%', objectFit: 'cover', width: '100%' }}
+                        />
+                      ) : (
+                        <ImageIcon fontSize="small" />
+                      )}
+                    </Box>
+                  </TableCell>
+                  <TableCell>{room.title || '-'}</TableCell>
+                  <TableCell>{room.username || room.user_id}</TableCell>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      color={room.status === 'live' ? 'success' : 'default'}
+                      label={room.status === 'live' ? '直播中' : room.enabled ? '离线' : '停用'}
+                    />
+                  </TableCell>
+                  <TableCell sx={{ fontFamily: 'monospace' }}>{room.stream_code}</TableCell>
+                  <TableCell align="right">
+                    <Tooltip title="上传封面">
+                      <IconButton onClick={() => openCoverUpload(room)} disabled={loading}>
+                        <UploadIcon />
                       </IconButton>
                     </Tooltip>
-                  ) : null}
-                </TableCell>
-              </TableRow>
-            ))}
+                    <Tooltip title="复制OBS串流密钥">
+                      <IconButton onClick={() => copyStreamKey(room)}>
+                        <ContentCopyIcon />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="编辑">
+                      <IconButton onClick={() => openEdit(room)}>
+                        <EditIcon />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="重置推流链接">
+                      <IconButton onClick={() => resetCode(room)} disabled={loading}>
+                        <KeyIcon />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="中断直播">
+                      <span>
+                        <IconButton
+                          color="error"
+                          onClick={() => stopStream(room)}
+                          disabled={loading || room.status !== 'live'}
+                        >
+                          <StopIcon />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    {isSuperAdmin ? (
+                      <Tooltip title="删除">
+                        <IconButton color="error" onClick={() => setDeleteTarget(room)}>
+                          <DeleteIcon />
+                        </IconButton>
+                      </Tooltip>
+                    ) : null}
+                  </TableCell>
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       </TableContainer>

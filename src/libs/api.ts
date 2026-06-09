@@ -27,8 +27,9 @@ async function request<T>(
 ): Promise<{ code: number; msg: string; data: T }> {
   const url = `${API_BASE}${path}`
   const token = getToken()
+  const isFormDataBody = options.body instanceof FormData
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(isFormDataBody ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string>),
   }
   if (token) {
@@ -136,6 +137,7 @@ export interface StreamInfo {
 export interface LiveRoom {
   stream_id: string
   title: string
+  cover_url: string
   app: string
   status: string
   started_at_ms: number | null
@@ -151,12 +153,21 @@ export interface StreamCodeInfo {
   stream_id: string
   username: string
   title?: string
+  cover_url?: string
 }
 
 export interface RoomTitleInfo {
   stream_id: string
   username: string
   title: string
+  cover_url: string
+}
+
+export interface RoomCoverInfo {
+  id?: number
+  stream_id: string
+  username: string
+  cover_url: string
 }
 
 export interface ServerStatus {
@@ -212,6 +223,39 @@ export async function updateRoomTitle(title: string): Promise<RoomTitleInfo> {
     throw new Error(res.msg || '保存直播间标题失败')
   }
   return res.data
+}
+
+export async function updateRoomCover(file: Blob): Promise<RoomCoverInfo> {
+  return uploadRoomCover('/api/live/room/cover', file)
+}
+
+export async function updateLiveRoomCover(id: number, file: Blob): Promise<RoomCoverInfo> {
+  return uploadRoomCover(`/api/live/rooms/${id}/cover`, file)
+}
+
+async function uploadRoomCover(path: string, file: Blob): Promise<RoomCoverInfo> {
+  const formData = new FormData()
+  const filename = file instanceof File ? file.name : 'cover.jpg'
+  formData.append('cover', file, filename)
+
+  const res = await request<RoomCoverInfo>(path, {
+    method: 'PUT',
+    body: formData,
+  })
+  if (res.code !== 0) {
+    throw new Error(res.msg || '保存直播间封面失败')
+  }
+  return res.data
+}
+
+export function resolveApiAssetUrl(value?: string | null): string {
+  if (!value) return ''
+
+  try {
+    return new URL(value).toString()
+  } catch {
+    return value.startsWith('/') ? `${API_BASE}${value}` : `${API_BASE}/${value}`
+  }
 }
 
 export async function stopStream(streamId: string): Promise<void> {
@@ -397,6 +441,7 @@ export interface AdminRoom {
   username: string
   stream_id: string
   title: string
+  cover_url: string
   stream_code: string
   enabled: boolean
   status: 'live' | 'offline'

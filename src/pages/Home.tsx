@@ -18,7 +18,7 @@ import RssFeedIcon from '@mui/icons-material/RssFeed'
 import ScheduleIcon from '@mui/icons-material/Schedule'
 import SpeedIcon from '@mui/icons-material/Speed'
 
-import { listLiveRooms, type LiveRoom } from '../libs/api'
+import { listLiveRooms, resolveApiAssetUrl, type LiveRoom } from '../libs/api'
 
 const REFRESH_INTERVAL_MS = 10000
 
@@ -175,90 +175,110 @@ export default function Home() {
               width: '100%'
             }}
           >
-            {rooms.map((room) => (
-              <Card
-                key={`${room.app}/${room.stream_id}`}
-                sx={{
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  borderRadius: 1,
-                  height: '100%',
-                  minWidth: 0,
-                  width: '100%'
-                }}
-              >
-                <CardActionArea
-                  onClick={() => openRoom(room)}
-                  sx={{ alignItems: 'stretch', display: 'flex', flexDirection: 'column', height: '100%' }}
+            {rooms.map((room) => {
+              const coverUrl = resolveApiAssetUrl(room.cover_url)
+
+              return (
+                <Card
+                  key={`${room.app}/${room.stream_id}`}
+                  sx={{
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    borderRadius: 1,
+                    height: '100%',
+                    minWidth: 0,
+                    width: '100%'
+                  }}
                 >
-                  <Box
-                    sx={{
-                      alignItems: 'center',
-                      aspectRatio: '16 / 9',
-                      bgcolor: '#111',
-                      borderBottom: '1px solid',
-                      borderColor: 'divider',
-                      display: 'flex',
-                      justifyContent: 'center',
-                      position: 'relative',
-                      width: '100%'
-                    }}
+                  <CardActionArea
+                    onClick={() => openRoom(room)}
+                    sx={{ alignItems: 'stretch', display: 'flex', flexDirection: 'column', height: '100%' }}
                   >
-                    <Chip
-                      color="error"
-                      label="LIVE"
-                      size="small"
-                      sx={{ fontWeight: 700, left: 12, position: 'absolute', top: 12 }}
-                    />
-                    <LiveTvIcon sx={{ color: 'rgba(255,255,255,0.34)', fontSize: 56 }} />
-                  </Box>
+                    <Box
+                      sx={{
+                        alignItems: 'center',
+                        aspectRatio: '16 / 9',
+                        bgcolor: '#111',
+                        borderBottom: '1px solid',
+                        borderColor: 'divider',
+                        display: 'flex',
+                        justifyContent: 'center',
+                        overflow: 'hidden',
+                        position: 'relative',
+                        width: '100%'
+                      }}
+                    >
+                      {coverUrl ? (
+                        <Box
+                          alt=""
+                          component="img"
+                          src={coverUrl}
+                          sx={{
+                            height: '100%',
+                            inset: 0,
+                            objectFit: 'cover',
+                            position: 'absolute',
+                            width: '100%'
+                          }}
+                        />
+                      ) : (
+                        <LiveTvIcon sx={{ color: 'rgba(255,255,255,0.34)', fontSize: 56 }} />
+                      )}
+                      <Chip
+                        color="error"
+                        label="LIVE"
+                        size="small"
+                        sx={{ fontWeight: 700, left: 12, position: 'absolute', top: 12 }}
+                      />
+                    </Box>
 
-                  <CardContent sx={{ flexGrow: 1, p: { xs: 2, sm: 2 }, width: '100%' }}>
-                    <Stack spacing={1.25}>
-                      <Typography
-                        component="h2"
-                        variant="h6"
-                        sx={{
-                          fontSize: { xs: '1rem', sm: '1.25rem' },
-                          fontWeight: 700,
-                          lineHeight: 1.25,
-                          overflowWrap: 'anywhere'
-                        }}
-                      >
-                        {roomDisplayTitle(room)}
-                      </Typography>
-                      {roomDisplayTitle(room) !== room.stream_id ? (
-                        <Typography color="text.secondary" variant="body2" sx={{ overflowWrap: 'anywhere' }}>
-                          房间 {room.stream_id}
+                    <CardContent sx={{ flexGrow: 1, p: { xs: 2, sm: 2 }, width: '100%' }}>
+                      <Stack spacing={1.25}>
+                        <Typography
+                          component="h2"
+                          variant="h6"
+                          sx={{
+                            fontSize: { xs: '1rem', sm: '1.25rem' },
+                            fontWeight: 700,
+                            lineHeight: 1.25,
+                            overflowWrap: 'anywhere'
+                          }}
+                        >
+                          {roomDisplayTitle(room)}
                         </Typography>
-                      ) : null}
+                        {roomDisplayTitle(room) !== room.stream_id ? (
+                          <Typography color="text.secondary" variant="body2" sx={{ overflowWrap: 'anywhere' }}>
+                            房间 {room.stream_id}
+                          </Typography>
+                        ) : null}
 
-                      <Stack
-                        direction="row"
-                        spacing={1}
-                        sx={{ alignItems: 'flex-start', color: 'text.secondary', minWidth: 0 }}
-                      >
-                        <ScheduleIcon fontSize="small" sx={{ flexShrink: 0, mt: 0.25 }} />
-                        <Typography variant="body2" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
-                          {formatStartTime(room.started_at_ms)} · {formatDuration(room.live_ms)}
-                        </Typography>
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          sx={{ alignItems: 'flex-start', color: 'text.secondary', minWidth: 0 }}
+                        >
+                          <ScheduleIcon fontSize="small" sx={{ flexShrink: 0, mt: 0.25 }} />
+                          <Typography variant="body2" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                            {formatStartTime(room.started_at_ms)} · {formatDuration(room.live_ms)}
+                          </Typography>
+                        </Stack>
+
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          sx={{ alignItems: 'flex-start', color: 'text.secondary', minWidth: 0 }}
+                        >
+                          <SpeedIcon fontSize="small" sx={{ flexShrink: 0, mt: 0.25 }} />
+                          <Typography variant="body2" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                            {formatResolution(room)} · {formatBitrate(room)}
+                          </Typography>
+                        </Stack>
                       </Stack>
-
-                      <Stack
-                        direction="row"
-                        spacing={1}
-                        sx={{ alignItems: 'flex-start', color: 'text.secondary', minWidth: 0 }}
-                      >
-                        <SpeedIcon fontSize="small" sx={{ flexShrink: 0, mt: 0.25 }} />
-                        <Typography variant="body2" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
-                          {formatResolution(room)} · {formatBitrate(room)}
-                        </Typography>
-                      </Stack>
-                    </Stack>
-                  </CardContent>
-                </CardActionArea>
-              </Card>
-            ))}
+                    </CardContent>
+                  </CardActionArea>
+                </Card>
+              )
+            })}
           </Box>
         )}
       </Stack>

@@ -135,9 +135,10 @@ function isPlaybackGestureError(err: unknown) {
 
 export interface MoyuPlayerProps {
   roomId: string
+  onVideoElementChange?: (video: HTMLVideoElement | null) => void
 }
 
-export default function MoyuPlayer({ roomId }: MoyuPlayerProps) {
+export default function MoyuPlayer({ roomId, onVideoElementChange }: MoyuPlayerProps) {
   const playerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const playbackRef = useRef<PlaybackHandle>()
@@ -171,6 +172,11 @@ export default function MoyuPlayer({ roomId }: MoyuPlayerProps) {
   )
   const currentSource = sources.find((source) => source.protocol === protocol)
   const isMuted = volume <= 0
+
+  useEffect(() => {
+    onVideoElementChange?.(videoRef.current)
+    return () => onVideoElementChange?.(null)
+  }, [onVideoElementChange])
 
   useEffect(() => {
     isPlayingRef.current = isPlaying
@@ -460,6 +466,7 @@ export default function MoyuPlayer({ roomId }: MoyuPlayerProps) {
       <video
         ref={videoRef}
         className={styles.video}
+        crossOrigin="anonymous"
         playsInline
         muted={isMuted}
         onPlay={() => {
