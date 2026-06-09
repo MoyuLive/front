@@ -4,6 +4,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef
 } from 'react'
 import {
@@ -14,8 +15,12 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  FormControl,
   IconButton,
   InputAdornment,
+  InputLabel,
+  MenuItem,
+  Select,
   Snackbar,
   Stack,
   TextField,
@@ -29,12 +34,13 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
 
 import {
+  type OwnLiveRoom,
   getPublishProtocols,
-  getStreamCode,
-  resetStreamCode,
+  listMyLiveRooms,
+  resetLiveRoomStreamCode,
   resolveApiAssetUrl,
-  updateRoomCover,
-  updateRoomTitle
+  updateLiveRoomCover,
+  updateLiveRoomTitle
 } from '../libs/api'
 import {
   buildRtmpPublishUrl,
@@ -166,10 +172,9 @@ function captureVideoFrame(video: HTMLVideoElement): Promise<Blob> {
 
 export default function AdminStreamCode() {
   const coverInputRef = useRef<HTMLInputElement>(null)
-  const [code, setCode] = useState('')
-  const [streamId, setStreamId] = useState('')
+  const [rooms, setRooms] = useState<OwnLiveRoom[]>([])
+  const [selectedRoomId, setSelectedRoomId] = useState<number | ''>('')
   const [roomTitle, setRoomTitle] = useState('')
-  const [coverUrl, setCoverUrl] = useState('')
   const [previewVideo, setPreviewVideo] = useState<HTMLVideoElement | null>(null)
   const [publishProtocols, setPublishProtocols] = useState<PublishProtocol[]>(['rtmp'])
   const [loading, setLoading] = useState(false)
@@ -182,17 +187,26 @@ export default function AdminStreamCode() {
     severity: 'success' | 'error'
   }>({ open: false, message: '', severity: 'success' })
 
-  const fetchCode = useCallback(async () => {
+  const selectedRoom = useMemo(
+    () => rooms.find((room) => room.id === selectedRoomId) ?? null,
+    [rooms, selectedRoomId]
+  )
+
+  const updateRoomInList = useCallback((updated: OwnLiveRoom) => {
+    setRooms((prev) => prev.map((room) => (room.id === updated.id ? updated : room)))
+  }, [])
+
+  const fetchRooms = useCallback(async () => {
     try {
-      const data = await getStreamCode()
-      setCode(data.stream_code)
-      setStreamId(data.stream_id)
-      setRoomTitle(data.title ?? data.stream_id)
-      setCoverUrl(data.cover_url ?? '')
+      const data = await listMyLiveRooms()
+      setRooms(data)
+      setSelectedRoomId((current) =>
+        data.some((room) => room.id === current) ? current : data[0]?.id ?? ''
+      )
     } catch (err) {
       setSnackbar({
         open: true,
-        message: err instanceof Error ? err.message : '获取推流码失败',
+        message: err instanceof Error ? err.message : '获取直播间失败',
         severity: 'error'
       })
     }
@@ -216,17 +230,22 @@ export default function AdminStreamCode() {
   }, [])
 
   useEffect(() => {
-    fetchCode()
+    fetchRooms()
     fetchPublishProtocols()
-  }, [fetchCode, fetchPublishProtocols])
+  }, [fetchRooms, fetchPublishProtocols])
+
+  useEffect(() => {
+    setRoomTitle(selectedRoom?.title ?? selectedRoom?.stream_id ?? '')
+    setPreviewVideo(null)
+  }, [selectedRoom?.id, selectedRoom?.stream_id, selectedRoom?.title])
 
   const handleReset = async () => {
+    if (!selectedRoom) return
+
     setLoading(true)
     try {
-      const data = await resetStreamCode()
-      setCode(data.stream_code)
-      setStreamId(data.stream_id)
-      setCoverUrl(data.cover_url ?? '')
+      const data = await resetLiveRoomStreamCode(selectedRoom.id)
+      updateRoomInList(data)
       setSnackbar({ open: true, message: '推流码已重置', severity: 'success' })
     } catch (err) {
       setSnackbar({
@@ -240,10 +259,12 @@ export default function AdminStreamCode() {
   }
 
   const handleSaveTitle = async () => {
+    if (!selectedRoom) return
+
     setSavingTitle(true)
     try {
-      const data = await updateRoomTitle(roomTitle)
-      setRoomTitle(data.title)
+      const data = await updateLiveRoomTitle(selectedRoom.id, roomTitle)
+      updateRoomInList(data)
       setSnackbar({ open: true, message: '直播间标题已保存', severity: 'success' })
     } catch (err) {
       setSnackbar({
@@ -257,6 +278,11 @@ export default function AdminStreamCode() {
   }
 
   const handleSaveCover = async (file: Blob) => {
+    if (!selectedRoom) {
+      setSnackbar({ open: true, message: '请选择直播间', severity: 'error' })
+      return
+    }
+
     if (file.size > MAX_COVER_UPLOAD_BYTES) {
       setSnackbar({ open: true, message: '封面图片不能超过 5MB', severity: 'error' })
       return
@@ -264,8 +290,12 @@ export default function AdminStreamCode() {
 
     setSavingCover(true)
     try {
-      const data = await updateRoomCover(file)
-      setCoverUrl(data.cover_url)
+      const data = await updateLiveRoomCover(selectedRoom.id, file)
+      setRooms((prev) =>
+        prev.map((room) =>
+          room.id === selectedRoom.id ? { ...room, cover_url: data.cover_url } : room
+        )
+      )
       setSnackbar({ open: true, message: '直播间封面已保存', severity: 'success' })
     } catch (err) {
       setSnackbar({
@@ -315,6 +345,9 @@ export default function AdminStreamCode() {
     })
   }
 
+  const code = selectedRoom?.stream_code ?? ''
+  const streamId = selectedRoom?.stream_id ?? ''
+  const coverUrl = selectedRoom?.cover_url ?? ''
   const streamName = streamId || 'STREAM'
   const rtmpServer = buildRtmpServerUrl(RTMP_HOST)
   const rtmpStreamKey = buildRtmpStreamKey(streamName, code)
@@ -341,12 +374,48 @@ export default function AdminStreamCode() {
                   variant="contained"
                   color="warning"
                   onClick={handleReset}
-                  disabled={loading}
+                  disabled={loading || !selectedRoom}
                   startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <RefreshIcon />}
                 >
                   重置推流码
                 </Button>
               </Stack>
+
+              {rooms.length > 1 ? (
+                <FormControl fullWidth size="small">
+                  <InputLabel>直播间</InputLabel>
+                  <Select
+                    value={selectedRoomId}
+                    label="直播间"
+                    onChange={(event) => setSelectedRoomId(Number(event.target.value))}
+                  >
+                    {rooms.map((room) => (
+                      <MenuItem key={room.id} value={room.id}>
+                        {room.title || room.stream_id}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              ) : null}
+
+              {rooms.length === 0 ? (
+                <Alert severity="warning">当前账号没有直播间</Alert>
+              ) : null}
+
+              {selectedRoom ? (
+                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                  <Chip
+                    size="small"
+                    color={selectedRoom.status === 'live' ? 'success' : 'default'}
+                    label={selectedRoom.status === 'live' ? '直播中' : '离线'}
+                  />
+                  <Chip
+                    size="small"
+                    color={selectedRoom.enabled ? 'primary' : 'default'}
+                    label={selectedRoom.enabled ? '已启用' : '已停用'}
+                  />
+                </Stack>
+              ) : null}
 
               <CopyField label="推流码" value={code} onCopy={handleCopy} />
               <CopyField label="直播间 ID" value={streamId} onCopy={handleCopy} />
@@ -363,7 +432,7 @@ export default function AdminStreamCode() {
                   sx={{ mb: 1.5 }}
                 />
                 <Button
-                  disabled={savingTitle}
+                  disabled={savingTitle || !selectedRoom}
                   onClick={handleSaveTitle}
                   startIcon={savingTitle ? <CircularProgress size={18} /> : <SaveIcon />}
                   variant="contained"
@@ -431,7 +500,7 @@ export default function AdminStreamCode() {
                     onChange={handleCoverFileChange}
                   />
                   <Button
-                    disabled={savingCover}
+                    disabled={savingCover || !selectedRoom}
                     onClick={() => coverInputRef.current?.click()}
                     startIcon={<CloudUploadIcon />}
                     variant="outlined"

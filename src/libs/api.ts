@@ -149,11 +149,13 @@ export interface LiveRoom {
 }
 
 export interface StreamCodeInfo {
+  id?: number
   stream_code: string
   stream_id: string
   username: string
   title?: string
   cover_url?: string
+  enabled?: boolean
 }
 
 export interface RoomTitleInfo {
@@ -168,6 +170,20 @@ export interface RoomCoverInfo {
   stream_id: string
   username: string
   cover_url: string
+}
+
+export interface OwnLiveRoom {
+  id: number
+  user_id: number
+  username: string
+  stream_id: string
+  title: string
+  cover_url: string
+  stream_code: string
+  enabled: boolean
+  status: 'live' | 'offline'
+  created_at: string
+  updated_at: string
 }
 
 export interface ServerStatus {
@@ -204,6 +220,14 @@ export async function getStreamCode(): Promise<StreamCodeInfo> {
   return res.data
 }
 
+export async function listMyLiveRooms(): Promise<OwnLiveRoom[]> {
+  const res = await request<OwnLiveRoom[]>('/api/live/my/rooms')
+  if (res.code !== 0) {
+    throw new Error(res.msg || '获取我的直播间失败')
+  }
+  return res.data
+}
+
 export async function resetStreamCode(): Promise<StreamCodeInfo> {
   const res = await request<StreamCodeInfo>('/api/live/stream/code/reset', {
     method: 'POST',
@@ -214,8 +238,29 @@ export async function resetStreamCode(): Promise<StreamCodeInfo> {
   return res.data
 }
 
+export async function resetLiveRoomStreamCode(id: number): Promise<OwnLiveRoom> {
+  const res = await request<OwnLiveRoom>(`/api/live/rooms/${id}/stream-code/reset`, {
+    method: 'POST',
+  })
+  if (res.code !== 0) {
+    throw new Error(res.msg || '重置推流码失败')
+  }
+  return res.data
+}
+
 export async function updateRoomTitle(title: string): Promise<RoomTitleInfo> {
   const res = await request<RoomTitleInfo>('/api/live/room/title', {
+    method: 'PUT',
+    body: JSON.stringify({ title }),
+  })
+  if (res.code !== 0) {
+    throw new Error(res.msg || '保存直播间标题失败')
+  }
+  return res.data
+}
+
+export async function updateLiveRoomTitle(id: number, title: string): Promise<OwnLiveRoom> {
+  const res = await request<OwnLiveRoom>(`/api/live/rooms/${id}/title`, {
     method: 'PUT',
     body: JSON.stringify({ title }),
   })
