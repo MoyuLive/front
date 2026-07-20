@@ -1,0 +1,81 @@
+.overlay {
+    position: absolute;
+    inset: 0 0 var(--player-controls-height) 0;
+    z-index: 1;
+    overflow: hidden;
+    pointer-events: none;
+    contain: layout paint;
+}
+
+.message {
+    position: absolute;
+    top: var(--danmaku-offset);
+    left: 100%;
+    color: var(--player-overlay-text);
+    font-size: 1rem;
+    font-weight: 500;
+    line-height: 1.5;
+    text-shadow:
+        0 1px 2px var(--player-overlay-outline),
+        1px 0 1px var(--player-overlay-outline),
+        -1px 0 1px var(--player-overlay-outline);
+    white-space: nowrap;
+    animation: danmaku-travel var(--danmaku-duration) linear both;
+    will-change: transform, opacity;
+}
+
+.sender {
+    font-weight: 700;
+}
+
+@keyframes danmaku-travel {
+    0% {
+        opacity: 0;
+        transform: translate3d(0, 0, 0);
+    }
+
+    5%,
+    92% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0;
+        transform: translate3d(calc(-100vw - 100%), 0, 0);
+    }
+}
+
+@media (max-width: 560px) {
+    .message {
+        top: var(--danmaku-offset-mobile);
+        font-size: 0.875rem;
+        line-height: 1.5;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .message {
+        right: auto;
+        left: 8px;
+        max-width: calc(100% - 16px);
+        padding: 4px 8px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        background: var(--player-overlay-surface);
+        border-radius: 4px;
+        animation: danmaku-static 6s linear both;
+        transform: none;
+        will-change: opacity;
+    }
+}
+
+@keyframes danmaku-static {
+    0%,
+    92% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0;
+    }
+}

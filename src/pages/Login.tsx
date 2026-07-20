@@ -1,35 +1,57 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  Container,
+  Alert,
   Box,
+  Button,
   Card,
   CardContent,
+  Container,
+  Tab,
+  Tabs,
   TextField,
-  Button,
-  Typography,
-  Alert
+  Typography
 } from '@mui/material'
 
-import { login } from '../libs/api'
+import { login, register } from '../libs/api'
+import { accountValidationError, sanitizeRedirect } from '../libs/viewerIdentity'
+
+type AccountMode = 'login' | 'register'
 
 export default function Login() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const [mode, setMode] = useState<AccountMode>(
+    searchParams.get('mode') === 'register' ? 'register' : 'login'
+  )
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  const handleModeChange = (_event: React.SyntheticEvent, nextMode: AccountMode) => {
+    setMode(nextMode)
+    setError('')
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+
+    const validationError = accountValidationError(username, password)
+    if (validationError) {
+      setError(validationError)
+      return
+    }
+
     setLoading(true)
     try {
-      const result = await login({ username, password })
+      const accountRequest = mode === 'login' ? login : register
+      const result = await accountRequest({ username, password })
       localStorage.setItem('jwt', result.token)
-      navigate('/admin')
+      navigate(sanitizeRedirect(searchParams.get('redirect')))
     } catch (err) {
-      setError(err instanceof Error ? err.message : '登录失败')
+      setError(err instanceof Error ? err.message : mode === 'login' ? '登录失败' : '注册失败')
     } finally {
       setLoading(false)
     }
@@ -42,14 +64,25 @@ export default function Login() {
           display: 'flex',
           justifyContent: 'center',
           alignItems: 'center',
-          minHeight: '100vh'
+          minHeight: '100dvh',
+          py: 3
         }}
       >
-        <Card sx={{ width: '100%', maxWidth: 400 }}>
-          <CardContent sx={{ p: 4 }}>
-            <Typography variant="h5" component="h1" gutterBottom sx={{ textAlign: 'center', mb: 3 }}>
-              管理后台登录
+        <Card sx={{ width: '100%', maxWidth: 400 }} variant="outlined">
+          <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
+            <Typography component="h1" sx={{ mb: 2, textAlign: 'center' }} variant="h5">
+              Yantube 账号
             </Typography>
+            <Tabs
+              aria-label="账号操作"
+              onChange={handleModeChange}
+              sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}
+              value={mode}
+              variant="fullWidth"
+            >
+              <Tab disabled={loading} label="登录" value="login" />
+              <Tab disabled={loading} label="注册" value="register" />
+            </Tabs>
             {error && (
               <Alert severity="error" sx={{ mb: 2 }}>
                 {error}
@@ -65,6 +98,7 @@ export default function Login() {
                 onChange={(e) => setUsername(e.target.value)}
                 required
                 autoFocus
+                autoComplete="username"
               />
               <TextField
                 label="密码"
@@ -75,6 +109,7 @@ export default function Login() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               />
               <Button
                 type="submit"
@@ -84,7 +119,7 @@ export default function Login() {
                 disabled={loading}
                 sx={{ mt: 3 }}
               >
-                {loading ? '登录中...' : '登录'}
+                {loading ? (mode === 'login' ? '登录中...' : '注册中...') : mode === 'login' ? '登录' : '注册'}
               </Button>
             </Box>
           </CardContent>

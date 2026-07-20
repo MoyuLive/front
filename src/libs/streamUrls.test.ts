@@ -4,6 +4,7 @@ import {
   buildRtmpPublishUrl,
   buildRtmpServerUrl,
   buildRtmpStreamKey,
+  buildRoomWebSocketUrl,
   buildSrtPublishUrl,
   buildSrtStreamId,
   buildWhipPublishUrl,
@@ -22,9 +23,52 @@ function assertEqual(actual: string, expected: string) {
   }
 }
 
+function assertPlaybackTicketUrl(actual: string, expected: string, ticket: string) {
+  assertEqual(actual, expected)
+  const url = new URL(actual, 'https://viewer.example')
+  assertEqual(String(url.searchParams.getAll('ticket').length), '1')
+  assertEqual(url.searchParams.get('ticket') ?? '', ticket)
+  assertEqual(String(url.searchParams.has('token')), 'false')
+}
+
+const reservedCharacterTicket = '+/=?&'
+
+assertPlaybackTicketUrl(
+  buildWhepUrl('https://live.example', 'room-1', reservedCharacterTicket),
+  'https://live.example/rtc/v1/whep/?app=live&stream=room-1&ticket=%2B%2F%3D%3F%26',
+  reservedCharacterTicket
+)
+
+assertPlaybackTicketUrl(
+  buildHlsPlaybackUrl('room-1', reservedCharacterTicket),
+  '/live/room-1.m3u8?ticket=%2B%2F%3D%3F%26',
+  reservedCharacterTicket
+)
+
+assertPlaybackTicketUrl(
+  buildFlvPlaybackUrl('room-1', reservedCharacterTicket),
+  '/live/room-1.flv?ticket=%2B%2F%3D%3F%26',
+  reservedCharacterTicket
+)
+
 assertEqual(
-  buildWhepUrl('https://live.example.com/srs', 'room-1', 'jwt-token'),
-  'https://live.example.com/srs/rtc/v1/whep/?app=live&stream=room-1&token=jwt-token'
+  buildWhepUrl('https://live.example', 'room-1', 'a+b/c='),
+  'https://live.example/rtc/v1/whep/?app=live&stream=room-1&ticket=a%2Bb%2Fc%3D'
+)
+
+assertEqual(
+  buildHlsPlaybackUrl('room-1', 'a+b/c='),
+  '/live/room-1.m3u8?ticket=a%2Bb%2Fc%3D'
+)
+
+assertEqual(
+  buildFlvPlaybackUrl('room-1', 'a+b/c='),
+  '/live/room-1.flv?ticket=a%2Bb%2Fc%3D'
+)
+
+assertEqual(
+  buildRoomWebSocketUrl('https://live.example', 'room-1', 'a+b/c='),
+  'wss://live.example/api/live/rooms/room-1/ws?ticket=a%2Bb%2Fc%3D'
 )
 
 assertEqual(
@@ -63,23 +107,13 @@ assertEqual(
 )
 
 assertEqual(
-  buildHlsPlaybackUrl('room-1'),
-  '/live/room-1.m3u8'
+  buildHlsPlaybackUrl('room 1', 'ticket'),
+  '/live/room%201.m3u8?ticket=ticket'
 )
 
 assertEqual(
-  buildHlsPlaybackUrl('room 1'),
-  '/live/room%201.m3u8'
-)
-
-assertEqual(
-  buildFlvPlaybackUrl('room-1'),
-  '/live/room-1.flv'
-)
-
-assertEqual(
-  buildFlvPlaybackUrl('room 1'),
-  '/live/room%201.flv'
+  buildFlvPlaybackUrl('room 1', 'ticket'),
+  '/live/room%201.flv?ticket=ticket'
 )
 
 assertEqual(

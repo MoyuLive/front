@@ -1,11 +1,43 @@
 import { clearToken, getToken, UserRole } from './auth'
 
 // API base URL — override in production via VITE_API_BASE env var
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:9081'
+export const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:9081'
 
 // Token refresh coordination — prevents infinite 401 → refresh → 401 loops
-let isRefreshing = false
-let refreshSubscribers: Array<(token: string) => void> = []
+let refreshPromise: Promise<string> | undefined
+
+interface ApiResponse<T> {
+  code: number
+  msg: string
+  data: T
+}
+
+interface RequestOptions extends RequestInit {
+  refreshOn401?: boolean
+}
+
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code: number,
+    message: string
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T>> {
+  try {
+    return await response.json() as ApiResponse<T>
+  } catch {
+    throw new ApiError(response.status, response.status, 'Invalid API response')
+  }
+}
+
+function throwApiError<T>(response: Response, body: ApiResponse<T>): never {
+  throw new ApiError(response.status, body.code, body.msg || 'Request failed')
+}
 
 /** Raw fetch-based refresh — bypasses the request() interceptor to avoid loops */
 async function refreshTokenInternal(): Promise<string> {
@@ -13,24 +45,34 @@ async function refreshTokenInternal(): Promise<string> {
   const resp = await fetch(`${API_BASE}/api/account/refresh`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
-  if (!resp.ok) throw new Error('Refresh failed')
-  const data = await resp.json()
-  if (data.code !== 0) throw new Error(data.msg || 'Refresh failed')
-  const newToken: string = data.data.token
+  const data = await parseApiResponse<LoginResult>(resp)
+  if (!resp.ok) throwApiError(resp, data)
+  if (data.code !== 0) throw new ApiError(resp.status, data.code, data.msg || 'Refresh failed')
+  const newToken = data.data.token
   localStorage.setItem('jwt', newToken)
   return newToken
 }
 
+function refreshTokenOnce(): Promise<string> {
+  if (!refreshPromise) {
+    refreshPromise = refreshTokenInternal().finally(() => {
+      refreshPromise = undefined
+    })
+  }
+  return refreshPromise
+}
+
 async function request<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestOptions = {}
 ): Promise<{ code: number; msg: string; data: T }> {
+  const { refreshOn401 = true, ...fetchOptions } = options
   const url = `${API_BASE}${path}`
   const token = getToken()
-  const isFormDataBody = options.body instanceof FormData
+  const isFormDataBody = fetchOptions.body instanceof FormData
   const headers: Record<string, string> = {
     ...(isFormDataBody ? {} : { 'Content-Type': 'application/json' }),
-    ...(options.headers as Record<string, string>),
+    ...(fetchOptions.headers as Record<string, string>),
   }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
@@ -40,41 +82,28 @@ async function request<T>(
   const timeoutId = setTimeout(() => controller.abort(), 30000)
 
   try {
-    const res = await fetch(url, { ...options, headers, signal: controller.signal })
+    const res = await fetch(url, { ...fetchOptions, headers, signal: controller.signal })
     clearTimeout(timeoutId)
+    const body = await parseApiResponse<T>(res)
 
-    if (res.status === 401 && token) {
-      if (!isRefreshing) {
-        isRefreshing = true
-        try {
-          const newToken = await refreshTokenInternal()
-          isRefreshing = false
-          refreshSubscribers.forEach((cb) => cb(newToken))
-          refreshSubscribers = []
-          headers['Authorization'] = `Bearer ${newToken}`
-          const retryRes = await fetch(url, { ...options, headers })
-          return retryRes.json()
-        } catch {
-          isRefreshing = false
-          refreshSubscribers = []
-          clearToken()
-          window.location.href = '/login'
-          return Promise.reject(new Error('Session expired'))
-        }
-      } else {
-        // Queue this request — retry after the ongoing refresh completes
-        return new Promise((resolve) => {
-          refreshSubscribers.push((newToken: string) => {
-            headers['Authorization'] = `Bearer ${newToken}`
-            fetch(url, { ...options, headers })
-              .then((r) => r.json())
-              .then(resolve)
-          })
-        })
+    if (res.status === 401 && token && refreshOn401) {
+      let newToken: string
+      try {
+        newToken = await refreshTokenOnce()
+      } catch {
+        clearToken()
+        window.location.href = '/login'
+        throw new Error('Session expired')
       }
+      headers['Authorization'] = `Bearer ${newToken}`
+      const retryRes = await fetch(url, { ...fetchOptions, headers })
+      const retryBody = await parseApiResponse<T>(retryRes)
+      if (!retryRes.ok) throwApiError(retryRes, retryBody)
+      return retryBody
     }
 
-    return res.json()
+    if (!res.ok) throwApiError(res, body)
+    return body
   } finally {
     clearTimeout(timeoutId)
   }
@@ -106,6 +135,27 @@ export async function login(params: LoginParams): Promise<LoginResult> {
     throw new Error(res.msg || '登录失败')
   }
   return res.data
+}
+
+export async function register(params: LoginParams): Promise<LoginResult> {
+  const res = await request<LoginResult>('/api/account/create', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+  if (res.code !== 0) {
+    throw new Error(res.msg || '注册失败')
+  }
+  return res.data
+}
+
+export async function logout(): Promise<void> {
+  const res = await request<null>('/api/account/logout', {
+    method: 'POST',
+    refreshOn401: false,
+  })
+  if (res.code !== 0) {
+    throw new Error(res.msg || '退出登录失败')
+  }
 }
 
 export async function getAdminMe(): Promise<AdminMe> {
@@ -146,6 +196,9 @@ export interface LiveRoom {
   video_height: number | null
   recv_kbps: number | null
   send_kbps: number | null
+  require_login: boolean
+  has_password: boolean
+  viewer_count: number
 }
 
 export interface StreamCodeInfo {
@@ -181,6 +234,8 @@ export interface OwnLiveRoom {
   cover_url: string
   stream_code: string
   enabled: boolean
+  require_login: boolean
+  has_password: boolean
   status: 'live' | 'offline'
   created_at: string
   updated_at: string
@@ -202,6 +257,52 @@ export interface PlaybackProtocolsInfo {
 export interface PublishProtocolsInfo {
   protocols: string[]
 }
+
+export type ViewerKind = 'user' | 'guest'
+
+export interface ViewerIdentity {
+  kind: ViewerKind
+  name: string
+}
+
+export interface PublicRoomMetadata {
+  stream_id: string
+  title: string
+  cover_url: string
+  status: 'live' | 'offline'
+  require_login: boolean
+  has_password: boolean
+  viewer_count: number
+}
+
+export interface RoomAccessResult {
+  ticket: string
+  expires_at: string
+  viewer: ViewerIdentity
+}
+
+export interface RoomAccessParams {
+  guest_id: string
+  password?: string
+}
+
+export interface RoomPrivacyInput {
+  require_login: boolean
+  password_enabled: boolean
+  password?: string
+}
+
+export interface RoomPrivacyResult {
+  require_login: boolean
+  has_password: boolean
+}
+
+export type RoomServerMessage =
+  | { type: 'viewer_count'; count: number }
+  | { type: 'danmaku'; id: string; sender: ViewerIdentity; content: string; sent_at: string }
+  | { type: 'error'; code: 'rate_limited' | 'invalid_message'; message: string }
+
+export type DanmakuMessage = Extract<RoomServerMessage, { type: 'danmaku' }>
 
 export async function refreshToken(): Promise<LoginResult> {
   try {
@@ -325,6 +426,48 @@ export async function listLiveRooms(): Promise<LiveRoom[]> {
   const res = await request<LiveRoom[]>('/api/live/rooms')
   if (res.code !== 0) {
     throw new Error(res.msg || '获取直播间列表失败')
+  }
+  return res.data
+}
+
+export async function getPublicRoom(streamId: string): Promise<PublicRoomMetadata> {
+  const res = await request<PublicRoomMetadata>(
+    `/api/live/rooms/${encodeURIComponent(streamId)}`
+  )
+  if (res.code !== 0) {
+    throw new Error(res.msg || '获取直播间信息失败')
+  }
+  return res.data
+}
+
+export async function requestRoomAccess(
+  streamId: string,
+  params: RoomAccessParams
+): Promise<RoomAccessResult> {
+  const res = await request<RoomAccessResult>(
+    `/api/live/rooms/${encodeURIComponent(streamId)}/access`,
+    {
+      method: 'POST',
+      body: JSON.stringify(params),
+      refreshOn401: false,
+    }
+  )
+  if (res.code !== 0) {
+    throw new Error(res.msg || '获取直播间访问凭证失败')
+  }
+  return res.data
+}
+
+export async function updateOwnedRoomPrivacy(
+  id: number,
+  input: RoomPrivacyInput
+): Promise<RoomPrivacyResult> {
+  const res = await request<RoomPrivacyResult>(`/api/live/rooms/${id}/privacy`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+  if (res.code !== 0) {
+    throw new Error(res.msg || '保存直播间隐私设置失败')
   }
   return res.data
 }
@@ -489,6 +632,8 @@ export interface AdminRoom {
   cover_url: string
   stream_code: string
   enabled: boolean
+  require_login: boolean
+  has_password: boolean
   status: 'live' | 'offline'
   live_session: StreamInfo | null
   created_at: string
@@ -500,6 +645,9 @@ export interface CreateAdminRoomParams {
   stream_id: string
   title?: string
   enabled?: boolean
+  require_login?: boolean
+  password_enabled?: boolean
+  password?: string
 }
 
 export interface UpdateAdminRoomParams {
@@ -507,6 +655,9 @@ export interface UpdateAdminRoomParams {
   stream_id?: string
   title?: string
   enabled?: boolean
+  require_login?: boolean
+  password_enabled?: boolean
+  password?: string
 }
 
 export async function listAdminRooms(): Promise<AdminRoom[]> {

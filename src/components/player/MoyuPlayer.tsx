@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button,
   IconButton,
@@ -7,6 +7,7 @@ import {
   Slider,
   Tooltip
 } from '@mui/material'
+import { alpha, useTheme } from '@mui/material/styles'
 import FitScreenIcon from '@mui/icons-material/FitScreen'
 import FullscreenIcon from '@mui/icons-material/Fullscreen'
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit'
@@ -18,7 +19,7 @@ import VolumeUpIcon from '@mui/icons-material/VolumeUp'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useAtom } from 'jotai'
 
-import { getPlaybackProtocols } from '../../libs/api'
+import { getPlaybackProtocols, type DanmakuMessage } from '../../libs/api'
 import {
   DEFAULT_PLAYBACK_PROTOCOLS,
   DEFAULT_WHEP_BASE,
@@ -28,6 +29,7 @@ import {
 import { playerVolumeAtom, preferredPlaybackProtocolAtom } from '../../storages/player'
 
 import styles from './MoyuPlayer.module.scss'
+import DanmakuOverlay from './DanmakuOverlay'
 import { attachPlaybackSource, type PlaybackHandle } from './playbackAdapters'
 import { shouldShowPageFullscreenControl } from './fullscreenControls'
 import {
@@ -36,6 +38,12 @@ import {
 } from './playerSources'
 
 const whepBaseURL = import.meta.env.VITE_WHEP_BASE || DEFAULT_WHEP_BASE
+
+interface PlayerCssVariables extends CSSProperties {
+  '--player-overlay-outline': string
+  '--player-overlay-surface': string
+  '--player-overlay-text': string
+}
 
 function areProtocolsEqual(left: readonly PlaybackProtocol[], right: readonly PlaybackProtocol[]) {
   return left.length === right.length && left.every((protocol, index) => protocol === right[index])
@@ -127,6 +135,13 @@ function warnControlFailure(action: string, err?: unknown) {
   console.warn(`${action} failed`, err)
 }
 
+function clearVideoElement(video: HTMLVideoElement) {
+  video.pause()
+  video.removeAttribute('src')
+  video.srcObject = null
+  video.load()
+}
+
 function isPlaybackGestureError(err: unknown) {
   if (!(err instanceof Error)) return false
   return err.name === 'NotAllowedError' ||
@@ -135,10 +150,18 @@ function isPlaybackGestureError(err: unknown) {
 
 export interface MoyuPlayerProps {
   roomId: string
+  ticket: string
+  danmakuMessages?: readonly DanmakuMessage[]
   onVideoElementChange?: (video: HTMLVideoElement | null) => void
 }
 
-export default function MoyuPlayer({ roomId, onVideoElementChange }: MoyuPlayerProps) {
+function MoyuPlayer({
+  roomId,
+  ticket,
+  danmakuMessages = [],
+  onVideoElementChange
+}: MoyuPlayerProps) {
+  const theme = useTheme()
   const playerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const playbackRef = useRef<PlaybackHandle>()
@@ -159,16 +182,21 @@ export default function MoyuPlayer({ roomId, onVideoElementChange }: MoyuPlayerP
   const [pictureInPictureSupported, setPictureInPictureSupported] = useState(false)
   const [error, setError] = useState<string>()
   const [protocolMenuAnchor, setProtocolMenuAnchor] = useState<null | HTMLElement>(null)
-  const token = useMemo(() => localStorage.getItem('jwt') || '', [])
+  const hasPlaybackAccess = Boolean(roomId && ticket)
+  const playerCssVariables = useMemo<PlayerCssVariables>(() => ({
+    '--player-overlay-outline': theme.palette.common.black,
+    '--player-overlay-surface': alpha(theme.palette.common.black, 0.68),
+    '--player-overlay-text': theme.palette.common.white
+  }), [theme])
 
   const sources = useMemo(
     () => buildMoyuPlayerSources({
       roomId,
-      token,
+      ticket,
       protocols,
       whepBaseUrl: whepBaseURL
     }),
-    [protocols, roomId, token]
+    [protocols, roomId, ticket]
   )
   const currentSource = sources.find((source) => source.protocol === protocol)
   const isMuted = volume <= 0
@@ -242,7 +270,16 @@ export default function MoyuPlayer({ roomId, onVideoElementChange }: MoyuPlayerP
 
   useEffect(() => {
     const video = videoRef.current
-    if (!video || !currentSource || !roomId) {
+    if (!video) {
+      return
+    }
+
+    if (!currentSource || !roomId || !ticket) {
+      isSwitchingSourceRef.current = false
+      setPlaybackNeedsGesture(false)
+      setIsReady(false)
+      setError(undefined)
+      clearVideoElement(video)
       return
     }
 
@@ -257,7 +294,6 @@ export default function MoyuPlayer({ roomId, onVideoElementChange }: MoyuPlayerP
     attachPlaybackSource({
       video,
       source: currentSource,
-      token,
       iceServers: getIceServers(),
       onReady: () => {
         if (cancelled) return
@@ -294,7 +330,7 @@ export default function MoyuPlayer({ roomId, onVideoElementChange }: MoyuPlayerP
       playbackRef.current = undefined
       void handle?.destroy()
     }
-  }, [currentSource, roomId, playVideo, token])
+  }, [currentSource, roomId, playVideo, ticket])
 
   useEffect(() => {
     const video = videoRef.current
@@ -462,6 +498,7 @@ export default function MoyuPlayer({ roomId, onVideoElementChange }: MoyuPlayerP
     <div
       ref={playerRef}
       className={`${styles.player} ${isWebFullscreen ? styles.webFullscreen : ''}`}
+      style={playerCssVariables}
     >
       <video
         ref={videoRef}
@@ -486,16 +523,26 @@ export default function MoyuPlayer({ roomId, onVideoElementChange }: MoyuPlayerP
           }
         }}
         onError={() => {
-          setError('Playback failed')
+          if (hasPlaybackAccess) {
+            setError('Playback failed')
+          }
         }}
       />
 
-      {!isReady && !error ? (
+      <DanmakuOverlay messages={danmakuMessages} />
+
+      {!hasPlaybackAccess ? (
+        <div className={styles.statusLayer} role="status">
+          {roomId ? '等待直播间播放凭证' : '等待直播间信息'}
+        </div>
+      ) : null}
+
+      {hasPlaybackAccess && !isReady && !error ? (
         <div className={styles.loadingLayer}>Loading</div>
       ) : null}
 
-      {error ? (
-        <div className={styles.errorLayer}>{error}</div>
+      {hasPlaybackAccess && error ? (
+        <div className={styles.errorLayer} role="alert">{error}</div>
       ) : null}
 
       {isReady && !isPlaying && !error ? (
@@ -515,7 +562,7 @@ export default function MoyuPlayer({ roomId, onVideoElementChange }: MoyuPlayerP
             <IconButton
               aria-label={isPlaying ? 'Pause' : 'Play'}
               color="inherit"
-              disabled={!currentSource}
+              disabled={!hasPlaybackAccess || !currentSource}
               onClick={togglePlaying}
               size="small"
             >
@@ -553,7 +600,7 @@ export default function MoyuPlayer({ roomId, onVideoElementChange }: MoyuPlayerP
         <Button
           className={styles.protocolButton}
           color="inherit"
-          disabled={protocols.length <= 1}
+          disabled={!hasPlaybackAccess || protocols.length <= 1}
           size="small"
           sx={{ textTransform: 'none' }}
           variant="text"
@@ -622,3 +669,5 @@ export default function MoyuPlayer({ roomId, onVideoElementChange }: MoyuPlayerP
     </div>
   )
 }
+
+export default MoyuPlayer

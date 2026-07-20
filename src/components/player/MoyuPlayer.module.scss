@@ -1,4 +1,6 @@
 .player {
+    --player-controls-height: 56px;
+
     position: relative;
     display: flex;
     width: 100%;
@@ -31,6 +33,7 @@
     background: #050505;
 }
 
+.statusLayer,
 .loadingLayer,
 .errorLayer {
     position: absolute;
@@ -41,8 +44,10 @@
     padding: 24px;
     text-align: center;
     pointer-events: none;
+    z-index: 2;
 }
 
+.statusLayer,
 .loadingLayer {
     color: rgba(255, 255, 255, 0.72);
 }
@@ -70,6 +75,7 @@
     border-radius: 8px;
     transform: translate(-50%, -50%);
     cursor: pointer;
+    z-index: 2;
 }
 
 .playOverlay:active {
@@ -93,6 +99,7 @@
     min-height: 56px;
     padding: 8px 12px max(8px, env(safe-area-inset-bottom));
     background: linear-gradient(to top, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0));
+    z-index: 3;
 }
 
 .playButton {
@@ -158,6 +165,8 @@
 
 @media (max-width: 560px) {
     .player {
+        --player-controls-height: 88px;
+
         max-width: 100%;
         max-height: 100dvh;
     }
@@ -167,6 +176,7 @@
         max-height: none;
     }
 
+    .statusLayer,
     .loadingLayer,
     .errorLayer {
         padding: 16px;

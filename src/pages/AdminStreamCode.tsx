@@ -1,5 +1,6 @@
 import {
   type ChangeEvent,
+  type FormEvent,
   type ReactNode,
   useState,
   useEffect,
@@ -34,12 +35,16 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
 
 import {
+  ApiError,
   type OwnLiveRoom,
+  type RoomPrivacyInput,
   getPublishProtocols,
   listMyLiveRooms,
+  requestRoomAccess,
   resetLiveRoomStreamCode,
   resolveApiAssetUrl,
   updateLiveRoomCover,
+  updateOwnedRoomPrivacy,
   updateLiveRoomTitle
 } from '../libs/api'
 import {
@@ -56,6 +61,8 @@ import {
   PublishProtocol
 } from '../libs/streamUrls'
 import MoyuPlayer from '../components/player/MoyuPlayer'
+import PrivacyControls from '../components/room/PrivacyControls'
+import { getOrCreateGuestId, unicodeLength } from '../libs/viewerIdentity'
 
 const RTMP_HOST = import.meta.env.VITE_RTMP_HOST || DEFAULT_RTMP_HOST
 const WHIP_BASE =
@@ -172,14 +179,24 @@ function captureVideoFrame(video: HTMLVideoElement): Promise<Blob> {
 
 export default function AdminStreamCode() {
   const coverInputRef = useRef<HTMLInputElement>(null)
+  const previewRequestVersionRef = useRef(0)
+  const selectedRoomIdRef = useRef<number | ''>('')
+  const pendingPreviewPasswordRef = useRef<{ roomId: number; password: string } | null>(null)
   const [rooms, setRooms] = useState<OwnLiveRoom[]>([])
   const [selectedRoomId, setSelectedRoomId] = useState<number | ''>('')
   const [roomTitle, setRoomTitle] = useState('')
   const [previewVideo, setPreviewVideo] = useState<HTMLVideoElement | null>(null)
+  const [previewRoomTicket, setPreviewRoomTicket] = useState('')
+  const [previewPassword, setPreviewPassword] = useState('')
+  const [previewPasswordError, setPreviewPasswordError] = useState('')
+  const [previewAccessError, setPreviewAccessError] = useState('')
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewPolicyVersion, setPreviewPolicyVersion] = useState(0)
   const [publishProtocols, setPublishProtocols] = useState<PublishProtocol[]>(['rtmp'])
   const [loading, setLoading] = useState(false)
   const [savingTitle, setSavingTitle] = useState(false)
   const [savingCover, setSavingCover] = useState(false)
+  const [savingPrivacy, setSavingPrivacy] = useState(false)
   const [protocolsLoading, setProtocolsLoading] = useState(false)
   const [snackbar, setSnackbar] = useState<{
     open: boolean
@@ -191,6 +208,13 @@ export default function AdminStreamCode() {
     () => rooms.find((room) => room.id === selectedRoomId) ?? null,
     [rooms, selectedRoomId]
   )
+  const previewRoomId = selectedRoom?.id ?? null
+  const previewStreamId = selectedRoom?.stream_id ?? ''
+  const previewHasPassword = selectedRoom?.has_password ?? false
+  const previewRequireLogin = selectedRoom?.require_login ?? false
+  const previewPasswordLength = unicodeLength(previewPassword)
+  const previewPasswordIsInvalid = previewPasswordLength < 6 || previewPasswordLength > 64
+  selectedRoomIdRef.current = selectedRoomId
 
   const updateRoomInList = useCallback((updated: OwnLiveRoom) => {
     setRooms((prev) => prev.map((room) => (room.id === updated.id ? updated : room)))
@@ -229,6 +253,55 @@ export default function AdminStreamCode() {
     }
   }, [])
 
+  const fetchPreviewTicket = useCallback(async (
+    roomId: number,
+    roomStreamId: string,
+    password?: string
+  ) => {
+    const requestVersion = ++previewRequestVersionRef.current
+    setPreviewRoomTicket('')
+    setPreviewVideo(null)
+    setPreviewAccessError('')
+    setPreviewLoading(true)
+
+    try {
+      const result = await requestRoomAccess(roomStreamId, {
+        guest_id: getOrCreateGuestId(),
+        ...(password ? { password } : {})
+      })
+      if (
+        requestVersion !== previewRequestVersionRef.current ||
+        selectedRoomIdRef.current !== roomId
+      ) return
+
+      setPreviewRoomTicket(result.ticket)
+      setPreviewPassword('')
+      setPreviewPasswordError('')
+    } catch (err) {
+      if (
+        requestVersion !== previewRequestVersionRef.current ||
+        selectedRoomIdRef.current !== roomId
+      ) return
+
+      setPreviewRoomTicket('')
+      setPreviewVideo(null)
+      if (err instanceof ApiError && err.status === 401) {
+        setPreviewAccessError('预览凭证申请失败：请确认当前账号仍处于登录状态。')
+      } else if (err instanceof ApiError && err.status === 403) {
+        setPreviewAccessError(err.message || '预览凭证申请失败：没有访问该直播间的权限。')
+      } else {
+        setPreviewAccessError(err instanceof Error ? err.message : '获取直播间预览凭证失败')
+      }
+    } finally {
+      if (
+        requestVersion === previewRequestVersionRef.current &&
+        selectedRoomIdRef.current === roomId
+      ) {
+        setPreviewLoading(false)
+      }
+    }
+  }, [])
+
   useEffect(() => {
     fetchRooms()
     fetchPublishProtocols()
@@ -236,8 +309,39 @@ export default function AdminStreamCode() {
 
   useEffect(() => {
     setRoomTitle(selectedRoom?.title ?? selectedRoom?.stream_id ?? '')
-    setPreviewVideo(null)
   }, [selectedRoom?.id, selectedRoom?.stream_id, selectedRoom?.title])
+
+  useEffect(() => {
+    previewRequestVersionRef.current += 1
+    setPreviewRoomTicket('')
+    setPreviewVideo(null)
+    setPreviewPassword('')
+    setPreviewPasswordError('')
+    setPreviewAccessError('')
+    setPreviewLoading(false)
+
+    if (previewRoomId === null || !previewStreamId) return
+
+    const pendingPassword = pendingPreviewPasswordRef.current
+    pendingPreviewPasswordRef.current = null
+    if (!previewHasPassword) {
+      void fetchPreviewTicket(previewRoomId, previewStreamId)
+    } else if (pendingPassword?.roomId === previewRoomId) {
+      void fetchPreviewTicket(previewRoomId, previewStreamId, pendingPassword.password)
+    }
+  }, [
+    fetchPreviewTicket,
+    previewHasPassword,
+    previewPolicyVersion,
+    previewRequireLogin,
+    previewRoomId,
+    previewStreamId
+  ])
+
+  useEffect(() => () => {
+    previewRequestVersionRef.current += 1
+    pendingPreviewPasswordRef.current = null
+  }, [])
 
   const handleReset = async () => {
     if (!selectedRoom) return
@@ -275,6 +379,55 @@ export default function AdminStreamCode() {
     } finally {
       setSavingTitle(false)
     }
+  }
+
+  const handleSavePrivacy = async (input: RoomPrivacyInput) => {
+    if (!selectedRoom) {
+      throw new Error('请选择直播间')
+    }
+
+    setSavingPrivacy(true)
+    try {
+      const result = await updateOwnedRoomPrivacy(selectedRoom.id, input)
+      if (result.has_password && input.password) {
+        pendingPreviewPasswordRef.current = {
+          roomId: selectedRoom.id,
+          password: input.password
+        }
+      } else {
+        pendingPreviewPasswordRef.current = null
+      }
+      setRooms((prev) => prev.map((room) => (
+        room.id === selectedRoom.id
+          ? {
+              ...room,
+              require_login: result.require_login,
+              has_password: result.has_password
+            }
+          : room
+      )))
+      setPreviewPolicyVersion((current) => current + 1)
+      setSnackbar({ open: true, message: '隐私设置已保存', severity: 'success' })
+    } catch (err) {
+      const saveError = err instanceof Error ? err : new Error('保存隐私设置失败')
+      setSnackbar({ open: true, message: saveError.message, severity: 'error' })
+      throw saveError
+    } finally {
+      setSavingPrivacy(false)
+    }
+  }
+
+  const handlePreviewPasswordSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!selectedRoom || previewLoading) return
+
+    if (previewPasswordIsInvalid) {
+      setPreviewPasswordError('预览密码必须为 6-64 个字符')
+      return
+    }
+
+    setPreviewPasswordError('')
+    await fetchPreviewTicket(selectedRoom.id, selectedRoom.stream_id, previewPassword)
   }
 
   const handleSaveCover = async (file: Blob) => {
@@ -444,6 +597,28 @@ export default function AdminStreamCode() {
           </CardContent>
         </Card>
 
+        {selectedRoom ? (
+          <Card sx={{ maxWidth: 820 }}>
+            <CardContent>
+              <Stack spacing={2.5}>
+                <Box>
+                  <Typography variant="h6">直播间隐私</Typography>
+                  <Typography color="text.secondary" variant="body2">
+                    登录要求与房间密码相互独立；播放端仍需申请短期访问凭证。
+                  </Typography>
+                </Box>
+                <PrivacyControls
+                  key={selectedRoom.id}
+                  hasPassword={selectedRoom.has_password}
+                  loading={savingPrivacy}
+                  onSave={handleSavePrivacy}
+                  requireLogin={selectedRoom.require_login}
+                />
+              </Stack>
+            </CardContent>
+          </Card>
+        ) : null}
+
         <Card sx={{ maxWidth: 820 }}>
           <CardContent>
             <Stack spacing={2.5}>
@@ -508,7 +683,7 @@ export default function AdminStreamCode() {
                     上传图片
                   </Button>
                   <Button
-                    disabled={savingCover || !streamId}
+                    disabled={savingCover || !previewVideo}
                     onClick={handleCaptureCover}
                     startIcon={<PhotoCameraIcon />}
                     variant="contained"
@@ -519,12 +694,74 @@ export default function AdminStreamCode() {
               </Box>
 
               {streamId ? (
-                <Box sx={{ width: '100%' }}>
-                  <MoyuPlayer
-                    roomId={streamId}
-                    onVideoElementChange={setPreviewVideo}
-                  />
-                </Box>
+                <Stack spacing={2}>
+                  <Typography variant="subtitle2">直播预览</Typography>
+
+                  {selectedRoom?.has_password ? (
+                    <Stack
+                      component="form"
+                      direction={{ xs: 'column', sm: 'row' }}
+                      onSubmit={handlePreviewPasswordSubmit}
+                      spacing={1.5}
+                      sx={{ alignItems: { xs: 'stretch', sm: 'flex-start' }, minWidth: 0 }}
+                    >
+                      <TextField
+                        autoComplete="off"
+                        disabled={previewLoading}
+                        error={Boolean(previewPasswordError) || (
+                          previewPasswordLength > 0 && previewPasswordIsInvalid
+                        )}
+                        fullWidth
+                        helperText={
+                          previewPasswordError || (previewPasswordLength > 0 && previewPasswordIsInvalid
+                            ? '预览密码必须为 6-64 个字符'
+                            : `${previewPasswordLength}/64 个字符，需输入 6-64 个字符`)
+                        }
+                        label="预览密码"
+                        onChange={(event) => {
+                          setPreviewPassword(event.target.value)
+                          setPreviewPasswordError('')
+                          setPreviewAccessError('')
+                        }}
+                        type="password"
+                        value={previewPassword}
+                      />
+                      <Button
+                        disabled={previewLoading || previewPasswordIsInvalid}
+                        sx={{ minHeight: 56, whiteSpace: 'nowrap' }}
+                        type="submit"
+                        variant="contained"
+                      >
+                        {previewLoading ? '取票中...' : '获取预览凭证'}
+                      </Button>
+                    </Stack>
+                  ) : null}
+
+                  {previewLoading ? (
+                    <Alert icon={<CircularProgress color="inherit" size={20} />} severity="info">
+                      正在申请直播间预览凭证
+                    </Alert>
+                  ) : null}
+                  {previewAccessError ? (
+                    <Alert severity="error">{previewAccessError}</Alert>
+                  ) : null}
+
+                  {previewRoomTicket ? (
+                    <Box sx={{ width: '100%' }}>
+                      <MoyuPlayer
+                        roomId={streamId}
+                        ticket={previewRoomTicket}
+                        onVideoElementChange={setPreviewVideo}
+                      />
+                    </Box>
+                  ) : !previewLoading && !previewAccessError ? (
+                    <Alert severity="info">
+                      {selectedRoom?.has_password
+                        ? '请输入独立的预览密码以申请播放凭证。'
+                        : '直播预览将在播放凭证就绪后显示。'}
+                    </Alert>
+                  ) : null}
+                </Stack>
               ) : null}
             </Stack>
           </CardContent>

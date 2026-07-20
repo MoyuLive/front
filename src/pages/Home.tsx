@@ -17,7 +17,11 @@ import LiveTvIcon from '@mui/icons-material/LiveTv'
 import RssFeedIcon from '@mui/icons-material/RssFeed'
 import ScheduleIcon from '@mui/icons-material/Schedule'
 import SpeedIcon from '@mui/icons-material/Speed'
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
+import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
 
+import AccountActions from '../components/AccountActions'
 import { listLiveRooms, resolveApiAssetUrl, type LiveRoom } from '../libs/api'
 
 const REFRESH_INTERVAL_MS = 10000
@@ -114,27 +118,34 @@ export default function Home() {
             </Typography>
           </Box>
           <Stack
-            direction="row"
             spacing={1}
-            sx={{ alignSelf: { xs: 'flex-start', sm: 'center' }, flexWrap: 'wrap', rowGap: 1 }}
+            sx={{ alignItems: { xs: 'flex-start', sm: 'flex-end' }, minWidth: 0, width: { xs: '100%', sm: 'auto' } }}
           >
-            <Chip
-              color="error"
-              icon={<LiveTvIcon />}
-              label={`${rooms.length} 个直播中`}
-              variant="outlined"
-            />
-            <Button
-              color="inherit"
-              component="a"
-              href="/feeds/live.xml"
-              size="small"
-              startIcon={<RssFeedIcon />}
-              sx={{ borderRadius: 1, minHeight: 32 }}
-              variant="outlined"
+            <AccountActions />
+            <Stack
+              direction="row"
+              spacing={1}
+              useFlexGap
+              sx={{ flexWrap: 'wrap', justifyContent: { xs: 'flex-start', sm: 'flex-end' } }}
             >
-              RSS
-            </Button>
+              <Chip
+                color="error"
+                icon={<LiveTvIcon />}
+                label={`${rooms.length} 个直播中`}
+                variant="outlined"
+              />
+              <Button
+                color="inherit"
+                component="a"
+                href="/feeds/live.xml"
+                size="small"
+                startIcon={<RssFeedIcon />}
+                sx={{ borderRadius: 1, minHeight: 32 }}
+                variant="outlined"
+              >
+                RSS
+              </Button>
+            </Stack>
           </Stack>
         </Box>
 
@@ -192,7 +203,13 @@ export default function Home() {
                 >
                   <CardActionArea
                     onClick={() => openRoom(room)}
-                    sx={{ alignItems: 'stretch', display: 'flex', flexDirection: 'column', height: '100%' }}
+                    sx={{
+                      alignItems: 'stretch',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      height: '100%',
+                      minWidth: 0
+                    }}
                   >
                     <Box
                       sx={{
@@ -232,8 +249,8 @@ export default function Home() {
                       />
                     </Box>
 
-                    <CardContent sx={{ flexGrow: 1, p: { xs: 2, sm: 2 }, width: '100%' }}>
-                      <Stack spacing={1.25}>
+                    <CardContent sx={{ flexGrow: 1, minWidth: 0, p: { xs: 2, sm: 2 }, width: '100%' }}>
+                      <Stack spacing={1.25} sx={{ minWidth: 0 }}>
                         <Typography
                           component="h2"
                           variant="h6"
@@ -251,6 +268,46 @@ export default function Home() {
                             房间 {room.stream_id}
                           </Typography>
                         ) : null}
+
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          useFlexGap
+                          sx={{ flexWrap: 'wrap', minWidth: 0 }}
+                        >
+                          <Chip
+                            data-testid={`viewer-count-${room.stream_id}`}
+                            icon={<VisibilityOutlinedIcon />}
+                            label={`${room.viewer_count} 人观看`}
+                            size="small"
+                            sx={{
+                              height: 'auto',
+                              maxWidth: '100%',
+                              '& .MuiChip-label': { overflowWrap: 'anywhere', whiteSpace: 'normal' }
+                            }}
+                            variant="outlined"
+                          />
+                          {room.require_login ? (
+                            <Chip
+                              color="warning"
+                              data-testid="privacy-chip-login"
+                              icon={<PersonOutlineIcon />}
+                              label="需登录"
+                              size="small"
+                              variant="outlined"
+                            />
+                          ) : null}
+                          {room.has_password ? (
+                            <Chip
+                              color="warning"
+                              data-testid="privacy-chip-password"
+                              icon={<LockOutlinedIcon />}
+                              label="需密码"
+                              size="small"
+                              variant="outlined"
+                            />
+                          ) : null}
+                        </Stack>
 
                         <Stack
                           direction="row"

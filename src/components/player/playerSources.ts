@@ -8,7 +8,7 @@ import {
 
 export interface BuildMoyuPlayerSourcesOptions {
   roomId: string
-  token: string
+  ticket: string
   protocols: readonly PlaybackProtocol[]
   whepBaseUrl: string
 }
@@ -20,13 +20,17 @@ export interface MoyuPlayerSource {
 
 export function buildMoyuPlayerSources({
   roomId,
-  token,
+  ticket,
   protocols,
   whepBaseUrl
 }: BuildMoyuPlayerSourcesOptions): MoyuPlayerSource[] {
+  if (!roomId || !ticket) {
+    return []
+  }
+
   return protocols.map((protocol) => ({
     protocol,
-    url: buildSourceUrl(protocol, roomId, token, whepBaseUrl)
+    url: buildSourceUrl(protocol, roomId, ticket, whepBaseUrl)
   }))
 }
 
@@ -51,15 +55,15 @@ export function pickInitialProtocol(
 function buildSourceUrl(
   protocol: PlaybackProtocol,
   roomId: string,
-  token: string,
+  ticket: string,
   whepBaseUrl: string
 ) {
   switch (protocol) {
     case 'webrtc':
-      return buildWhepUrl(whepBaseUrl, roomId, token)
+      return buildWhepUrl(whepBaseUrl, roomId, ticket)
     case 'hls':
-      return buildHlsPlaybackUrl(roomId)
+      return buildHlsPlaybackUrl(roomId, ticket)
     case 'flv':
-      return buildFlvPlaybackUrl(roomId)
+      return buildFlvPlaybackUrl(roomId, ticket)
   }
 }

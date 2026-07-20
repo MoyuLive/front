@@ -9,12 +9,14 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
+  FormControlLabel,
   IconButton,
   InputLabel,
   MenuItem,
   Paper,
   Select,
   Snackbar,
+  Stack,
   Switch,
   Table,
   TableBody,
@@ -49,6 +51,7 @@ import {
   updateLiveRoomCover
 } from '../libs/api'
 import { buildRtmpStreamKey } from '../libs/streamUrls'
+import { unicodeLength } from '../libs/viewerIdentity'
 
 interface AdminRoomsProps {
   isSuperAdmin: boolean
@@ -59,13 +62,19 @@ interface RoomForm {
   stream_id: string
   title: string
   enabled: boolean
+  require_login: boolean
+  password_enabled: boolean
+  password: string
 }
 
 const emptyForm: RoomForm = {
   user_id: 0,
   stream_id: '',
   title: '',
-  enabled: true
+  enabled: true,
+  require_login: false,
+  password_enabled: false,
+  password: ''
 }
 
 export default function AdminRooms({ isSuperAdmin }: AdminRoomsProps) {
@@ -76,6 +85,7 @@ export default function AdminRooms({ isSuperAdmin }: AdminRoomsProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<AdminRoom | null>(null)
   const [form, setForm] = useState<RoomForm>(emptyForm)
+  const [formError, setFormError] = useState('')
   const [coverTarget, setCoverTarget] = useState<AdminRoom | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminRoom | null>(null)
   const [snackbar, setSnackbar] = useState<{
@@ -124,10 +134,25 @@ export default function AdminRooms({ isSuperAdmin }: AdminRoomsProps) {
       }),
     [rooms]
   )
+  const passwordLength = unicodeLength(form.password)
+  const passwordRequired = form.password_enabled && !editing?.has_password
+  const passwordValidationError = form.password_enabled && (
+    (passwordRequired && passwordLength === 0) ||
+    (passwordLength > 0 && (passwordLength < 6 || passwordLength > 64))
+  )
+    ? '启用房间密码时，密码必须为 6-64 个字符'
+    : ''
+
+  const closeRoomDialog = () => {
+    setDialogOpen(false)
+    setForm((current) => ({ ...current, password: '' }))
+    setFormError('')
+  }
 
   const openCreate = () => {
     setEditing(null)
     setForm({ ...emptyForm, user_id: users[0]?.id ?? 0 })
+    setFormError('')
     setDialogOpen(true)
   }
 
@@ -137,27 +162,59 @@ export default function AdminRooms({ isSuperAdmin }: AdminRoomsProps) {
       user_id: room.user_id,
       stream_id: room.stream_id,
       title: room.title,
-      enabled: room.enabled
+      enabled: room.enabled,
+      require_login: room.require_login,
+      password_enabled: room.has_password,
+      password: ''
     })
+    setFormError('')
     setDialogOpen(true)
   }
 
   const saveRoom = async () => {
+    if (passwordValidationError) {
+      setFormError(passwordValidationError)
+      return
+    }
+    if (!editing && !isSuperAdmin) {
+      setFormError('只有超级管理员可以创建直播间')
+      return
+    }
+
     setLoading(true)
+    setFormError('')
     try {
+      const privacyParams = {
+        require_login: form.require_login,
+        password_enabled: form.password_enabled,
+        ...(form.password ? { password: form.password } : {})
+      }
       if (editing) {
         const params = isSuperAdmin
-          ? form
+          ? {
+              user_id: form.user_id,
+              stream_id: form.stream_id,
+              title: form.title,
+              enabled: form.enabled,
+              ...privacyParams
+            }
           : {
-              title: form.title
+              title: form.title,
+              ...privacyParams
             }
         await updateAdminRoom(editing.id, params)
         setSnackbar({ open: true, message: '直播间已更新', severity: 'success' })
       } else {
-        await createAdminRoom(form)
+        await createAdminRoom({
+          user_id: form.user_id,
+          stream_id: form.stream_id,
+          title: form.title,
+          enabled: form.enabled,
+          ...privacyParams
+        })
         setSnackbar({ open: true, message: '直播间已创建', severity: 'success' })
       }
-      setDialogOpen(false)
+      closeRoomDialog()
       await fetchRooms()
     } catch (err) {
       setSnackbar({
@@ -338,11 +395,25 @@ export default function AdminRooms({ isSuperAdmin }: AdminRoomsProps) {
                   <TableCell>{room.title || '-'}</TableCell>
                   <TableCell>{room.username || room.user_id}</TableCell>
                   <TableCell>
-                    <Chip
-                      size="small"
-                      color={room.status === 'live' ? 'success' : 'default'}
-                      label={room.status === 'live' ? '直播中' : room.enabled ? '离线' : '停用'}
-                    />
+                    <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                      <Chip
+                        size="small"
+                        color={room.status === 'live' ? 'success' : 'default'}
+                        label={room.status === 'live' ? '直播中' : room.enabled ? '离线' : '停用'}
+                      />
+                      <Chip
+                        color={room.require_login ? 'warning' : 'default'}
+                        label={room.require_login ? '需登录' : '无需登录'}
+                        size="small"
+                        variant="outlined"
+                      />
+                      <Chip
+                        color={room.has_password ? 'warning' : 'default'}
+                        label={room.has_password ? '需密码' : '无密码'}
+                        size="small"
+                        variant="outlined"
+                      />
+                    </Stack>
                   </TableCell>
                   <TableCell sx={{ fontFamily: 'monospace' }}>{room.stream_code}</TableCell>
                   <TableCell align="right">
@@ -392,9 +463,10 @@ export default function AdminRooms({ isSuperAdmin }: AdminRoomsProps) {
         </Table>
       </TableContainer>
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={dialogOpen} onClose={closeRoomDialog} fullWidth maxWidth="sm">
         <DialogTitle>{editing ? '编辑直播间' : '新增直播间'}</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, pt: 2 }}>
+        <DialogContent sx={{ display: 'grid', gap: 2, minWidth: 0, pt: 2 }}>
+          {formError ? <Alert severity="error">{formError}</Alert> : null}
           {isSuperAdmin ? (
             <FormControl fullWidth>
               <InputLabel>用户</InputLabel>
@@ -427,18 +499,87 @@ export default function AdminRooms({ isSuperAdmin }: AdminRoomsProps) {
             fullWidth
           />
           {isSuperAdmin ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Switch
-                checked={form.enabled}
-                onChange={(e) => setForm((prev) => ({ ...prev, enabled: e.target.checked }))}
-              />
-              <Typography>{form.enabled ? '启用' : '停用'}</Typography>
-            </Box>
+            <FormControlLabel
+              control={(
+                <Switch
+                  checked={form.enabled}
+                  onChange={(e) => setForm((prev) => ({ ...prev, enabled: e.target.checked }))}
+                />
+              )}
+              label={form.enabled ? '直播间已启用' : '直播间已停用'}
+            />
           ) : null}
+
+          <Box
+            component="fieldset"
+            sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, m: 0, minWidth: 0, p: 2 }}
+          >
+            <Typography component="legend" sx={{ px: 1 }} variant="subtitle2">
+              隐私设置
+            </Typography>
+            <Stack spacing={1.5} sx={{ minWidth: 0 }}>
+              <FormControlLabel
+                control={(
+                  <Switch
+                    checked={form.require_login}
+                    disabled={loading}
+                    onChange={(event) => setForm((current) => ({
+                      ...current,
+                      require_login: event.target.checked
+                    }))}
+                  />
+                )}
+                label="要求账号登录"
+                sx={{ m: 0 }}
+              />
+              <FormControlLabel
+                control={(
+                  <Switch
+                    checked={form.password_enabled}
+                    disabled={loading}
+                    onChange={(event) => {
+                      setForm((current) => ({
+                        ...current,
+                        password_enabled: event.target.checked,
+                        password: event.target.checked ? current.password : ''
+                      }))
+                      setFormError('')
+                    }}
+                  />
+                )}
+                label="启用房间密码"
+                sx={{ m: 0 }}
+              />
+              {form.password_enabled ? (
+                <TextField
+                  autoComplete="new-password"
+                  disabled={loading}
+                  error={Boolean(passwordValidationError)}
+                  fullWidth
+                  helperText={
+                    passwordValidationError || (editing?.has_password && passwordLength === 0
+                      ? '密码已配置；留空保持当前密码'
+                      : `${passwordLength}/64 个字符，支持 Unicode`)
+                  }
+                  label="房间密码"
+                  onChange={(event) => {
+                    setForm((current) => ({ ...current, password: event.target.value }))
+                    setFormError('')
+                  }}
+                  type="password"
+                  value={form.password}
+                />
+              ) : null}
+            </Stack>
+          </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>取消</Button>
-          <Button variant="contained" onClick={saveRoom} disabled={loading}>
+        <DialogActions sx={{ flexWrap: 'wrap', px: { xs: 2, sm: 3 }, pb: 2 }}>
+          <Button onClick={closeRoomDialog}>取消</Button>
+          <Button
+            variant="contained"
+            onClick={saveRoom}
+            disabled={loading || Boolean(passwordValidationError)}
+          >
             保存
           </Button>
         </DialogActions>

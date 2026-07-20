@@ -12,7 +12,6 @@ declare global {
 export interface PlaybackAdapterOptions {
   video: HTMLVideoElement
   source: MoyuPlayerSource
-  token: string
   iceServers: RTCIceServer[]
   onReady: () => void
   onError: (error: Error) => void
@@ -25,7 +24,6 @@ export interface PlaybackHandle {
 export async function attachPlaybackSource({
   video,
   source,
-  token,
   iceServers,
   onReady,
   onError
@@ -34,7 +32,7 @@ export async function attachPlaybackSource({
 
   switch (source.protocol) {
     case 'webrtc':
-      return attachWebRtc(video, source.url, token, iceServers, onReady, onError)
+      return attachWebRtc(video, source.url, iceServers, onReady, onError)
     case 'hls':
       return attachHls(video, source.url, onReady, onError)
     case 'flv':
@@ -52,7 +50,6 @@ function resetVideo(video: HTMLVideoElement) {
 async function attachWebRtc(
   video: HTMLVideoElement,
   url: string,
-  token: string,
   iceServers: RTCIceServer[],
   onReady: () => void,
   onError: (error: Error) => void
@@ -84,7 +81,7 @@ async function attachWebRtc(
     }
   }
 
-  whep.view(pc, url, token, abortController.signal).catch((error: Error) => {
+  whep.view(pc, url, undefined, abortController.signal).catch((error: Error) => {
     if (!destroyed) {
       onError(error)
     }

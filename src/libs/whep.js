@@ -8,6 +8,40 @@ const Extensions = {
   }
 }
 
+async function waitForIceGatheringComplete(pc, signal) {
+  if (signal?.aborted)
+    throw new DOMException('The operation was aborted', 'AbortError')
+  if (pc.iceGatheringState === 'complete') return
+
+  await new Promise((resolve, reject) => {
+    let settled = false
+    const cleanup = () => {
+      pc.removeEventListener('icegatheringstatechange', onStateChange)
+      signal?.removeEventListener('abort', onAbort)
+    }
+    const onStateChange = () => {
+      if (settled || pc.iceGatheringState !== 'complete') return
+      settled = true
+      cleanup()
+      resolve()
+    }
+    const onAbort = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(new DOMException('The operation was aborted', 'AbortError'))
+    }
+
+    pc.addEventListener('icegatheringstatechange', onStateChange)
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) {
+      onAbort()
+      return
+    }
+    onStateChange()
+  })
+}
+
 export class WHEPClient extends EventTarget {
   constructor() {
     super()
@@ -27,41 +61,12 @@ export class WHEPClient extends EventTarget {
     this.token = token
     this.pc = pc
 
-    //Listen for state change events
-    pc.onconnectionstatechange = (_event) => {
-      switch (pc.connectionState) {
-        case 'connected':
-          // The connection has become fully connected
-          break
-        case 'disconnected':
-        case 'failed':
-          // One or more transports has terminated unexpectedly or in an error
-          break
-        case 'closed':
-          // The connection has been closed
-          break
-      }
-    }
-
-    //Listen for candidates
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        //Ignore candidates not from the first m line
-        if (event.candidate.sdpMLineIndex > 0)
-          //Skip
-          return
-        //Store candidate
-        this.candidates.push(event.candidate)
-      } else {
-        //No more candidates
-        this.endOfcandidates = true
-      }
-      //Schedule patch on next tick if there is no already a timer or doing restart
-      if (!this.iceTrickeTimeout && !this.restartIce)
-        this.iceTrickeTimeout = setTimeout(() => this.patch(), 0)
-    }
     //Create SDP offer
     const offer = await pc.createOffer()
+    await pc.setLocalDescription(offer)
+    await waitForIceGatheringComplete(pc, signal)
+    const localOffer = pc.localDescription
+    if (!localOffer?.sdp) throw new Error('Local SDP offer unavailable')
 
     //Request headers
     const headers = {
@@ -74,7 +79,7 @@ export class WHEPClient extends EventTarget {
     //Do the post request to the WHEP endpoint with the SDP offer
     const fetched = await fetch(url, {
       method: 'POST',
-      body: offer.sdp,
+      body: localOffer.sdp,
       headers,
       signal
     })
@@ -228,13 +233,6 @@ export class WHEPClient extends EventTarget {
     //Get the SDP answer
     const answer = await fetched.text()
 
-    //Schedule trickle on next tick
-    if (!this.iceTrickeTimeout)
-      this.iceTrickeTimeout = setTimeout(() => this.patch(), 0)
-
-    //Set local description
-    await pc.setLocalDescription(offer)
-
     // TODO: chrome is returning a wrong value, so don't use it for now
     //try {
     //	//Get local ice properties
@@ -244,8 +242,8 @@ export class WHEPClient extends EventTarget {
     //	this.icePassword = local.password;
     //} catch (e) {
     //Fallback for browsers not supporting ice transport
-    this.iceUsername = offer.sdp.match(/a=ice-ufrag:(.*)\r\n/)[1]
-    this.icePassword = offer.sdp.match(/a=ice-pwd:(.*)\r\n/)[1]
+    this.iceUsername = localOffer.sdp.match(/a=ice-ufrag:(.*)\r\n/)[1]
+    this.icePassword = localOffer.sdp.match(/a=ice-pwd:(.*)\r\n/)[1]
     //}
 
     //And set remote description

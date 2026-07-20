@@ -38,12 +38,12 @@ function stripScheme(hostOrUrl: string): string {
   return hostOrUrl.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').replace(/\/+$/, '')
 }
 
-export function buildWhepUrl(baseUrl: string, roomId: string, token: string) {
+export function buildWhepUrl(baseUrl: string, roomId: string, ticket: string) {
   const normalizedBase = baseUrl.replace(/\/+$/, '')
   const url = new URL(`${normalizedBase}/rtc/v1/whep/`)
   url.searchParams.set('app', 'live')
   url.searchParams.set('stream', roomId)
-  url.searchParams.set('token', token)
+  url.searchParams.set('ticket', ticket)
   return url.toString()
 }
 
@@ -70,7 +70,7 @@ export function buildRtmpPublishUrl(host: string, streamName: string, token: str
 
 export function buildSrtPublishUrl(host: string, streamName: string, token: string) {
   const streamId = buildSrtStreamId(streamName, token)
-  const url = new URL(`srt://${stripScheme(host)}`)
+  const url = new URL(`srt://${stripScheme(host)}/`)
   url.searchParams.set('streamid', streamId)
   return url.toString()
 }
@@ -79,10 +79,24 @@ export function buildSrtStreamId(streamName: string, token: string) {
   return `#!::r=live/${streamName},m=publish,token=${token}`
 }
 
-export function buildHlsPlaybackUrl(roomId: string) {
-  return `/live/${encodeURIComponent(roomId)}.m3u8`
+export function buildHlsPlaybackUrl(roomId: string, ticket: string) {
+  const searchParams = new URLSearchParams({ ticket })
+  return `/live/${encodeURIComponent(roomId)}.m3u8?${searchParams.toString()}`
 }
 
-export function buildFlvPlaybackUrl(roomId: string) {
-  return `/live/${encodeURIComponent(roomId)}.flv`
+export function buildFlvPlaybackUrl(roomId: string, ticket: string) {
+  const searchParams = new URLSearchParams({ ticket })
+  return `/live/${encodeURIComponent(roomId)}.flv?${searchParams.toString()}`
+}
+
+export function buildRoomWebSocketUrl(apiBase: string, roomId: string, ticket: string) {
+  const normalizedBase = apiBase.replace(/\/+$/, '')
+  const url = new URL(`${normalizedBase}/api/live/rooms/${encodeURIComponent(roomId)}/ws`)
+  if (url.protocol === 'http:') {
+    url.protocol = 'ws:'
+  } else if (url.protocol === 'https:') {
+    url.protocol = 'wss:'
+  }
+  url.searchParams.set('ticket', ticket)
+  return url.toString()
 }
