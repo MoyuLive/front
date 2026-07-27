@@ -39,10 +39,23 @@ function throwApiError<T>(response: Response, body: ApiResponse<T>): never {
   throw new ApiError(response.status, body.code, body.msg || 'Request failed')
 }
 
+const REQUEST_TIMEOUT_MS = 30000
+
+/** Every request gets its own abort timer so no fetch can hang forever. */
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 /** Raw fetch-based refresh — bypasses the request() interceptor to avoid loops */
 async function refreshTokenInternal(): Promise<string> {
   const token = getToken()
-  const resp = await fetch(`${API_BASE}/api/account/refresh`, {
+  const resp = await fetchWithTimeout(`${API_BASE}/api/account/refresh`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
   const data = await parseApiResponse<LoginResult>(resp)
@@ -78,35 +91,27 @@ async function request<T>(
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 30000)
+  const res = await fetchWithTimeout(url, { ...fetchOptions, headers })
+  const body = await parseApiResponse<T>(res)
 
-  try {
-    const res = await fetch(url, { ...fetchOptions, headers, signal: controller.signal })
-    clearTimeout(timeoutId)
-    const body = await parseApiResponse<T>(res)
-
-    if (res.status === 401 && token && refreshOn401) {
-      let newToken: string
-      try {
-        newToken = await refreshTokenOnce()
-      } catch {
-        clearToken()
-        window.location.href = '/login'
-        throw new Error('Session expired')
-      }
-      headers['Authorization'] = `Bearer ${newToken}`
-      const retryRes = await fetch(url, { ...fetchOptions, headers })
-      const retryBody = await parseApiResponse<T>(retryRes)
-      if (!retryRes.ok) throwApiError(retryRes, retryBody)
-      return retryBody
+  if (res.status === 401 && token && refreshOn401) {
+    let newToken: string
+    try {
+      newToken = await refreshTokenOnce()
+    } catch {
+      clearToken()
+      window.location.href = '/login'
+      throw new Error('Session expired')
     }
-
-    if (!res.ok) throwApiError(res, body)
-    return body
-  } finally {
-    clearTimeout(timeoutId)
+    headers['Authorization'] = `Bearer ${newToken}`
+    const retryRes = await fetchWithTimeout(url, { ...fetchOptions, headers })
+    const retryBody = await parseApiResponse<T>(retryRes)
+    if (!retryRes.ok) throwApiError(retryRes, retryBody)
+    return retryBody
   }
+
+  if (!res.ok) throwApiError(res, body)
+  return body
 }
 
 export interface LoginParams {

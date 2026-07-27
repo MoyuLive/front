@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Alert,
@@ -71,12 +71,20 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  const requestVersionRef = useRef(0)
+  const appliedVersionRef = useRef(0)
+
   const fetchRooms = useCallback(async () => {
+    const version = ++requestVersionRef.current
     try {
       const data = await listLiveRooms()
+      if (version < appliedVersionRef.current) return
+      appliedVersionRef.current = version
       setRooms(data)
       setError('')
     } catch (err) {
+      if (version < appliedVersionRef.current) return
+      appliedVersionRef.current = version
       setError(err instanceof Error ? err.message : '获取直播间列表失败')
     } finally {
       setLoading(false)

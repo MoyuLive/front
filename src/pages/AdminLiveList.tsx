@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Table,
   TableBody,
@@ -31,9 +31,15 @@ export default function AdminLiveList() {
     severity: 'success' | 'error'
   }>({ open: false, message: '', severity: 'success' })
 
+  const requestVersionRef = useRef(0)
+  const appliedVersionRef = useRef(0)
+
   const fetchStreams = useCallback(async () => {
+    const version = ++requestVersionRef.current
     try {
       const data = await listStreams()
+      if (version < appliedVersionRef.current) return
+      appliedVersionRef.current = version
       setStreams(data)
     } catch (err) {
       console.error('Failed to fetch streams:', err)

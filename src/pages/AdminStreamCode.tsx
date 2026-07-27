@@ -492,10 +492,13 @@ export default function AdminStreamCode() {
     }
   }
 
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => {
+  const handleCopy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
       setSnackbar({ open: true, message: '已复制到剪贴板', severity: 'success' })
-    })
+    } catch {
+      setSnackbar({ open: true, message: '复制失败，请手动复制', severity: 'error' })
+    }
   }
 
   const code = selectedRoom?.stream_code ?? ''

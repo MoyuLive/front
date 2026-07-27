@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Box,
   Card,
@@ -23,12 +23,20 @@ export default function AdminSystem() {
   const [servers, setServers] = useState<ServerStatus[]>([])
   const [error, setError] = useState('')
 
+  const requestVersionRef = useRef(0)
+  const appliedVersionRef = useRef(0)
+
   const fetchStatus = useCallback(async () => {
+    const version = ++requestVersionRef.current
     try {
       const data = await getServerStatus()
+      if (version < appliedVersionRef.current) return
+      appliedVersionRef.current = version
       setServers(data)
       setError('')
     } catch (err) {
+      if (version < appliedVersionRef.current) return
+      appliedVersionRef.current = version
       setError(err instanceof Error ? err.message : '获取服务器状态失败')
     }
   }, [])

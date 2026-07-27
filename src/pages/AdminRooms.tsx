@@ -94,10 +94,19 @@ export default function AdminRooms({ isSuperAdmin }: AdminRoomsProps) {
     severity: 'success' | 'error'
   }>({ open: false, message: '', severity: 'success' })
 
+  const roomsVersionRef = useRef(0)
+  const appliedRoomsVersionRef = useRef(0)
+
   const fetchRooms = useCallback(async () => {
+    const version = ++roomsVersionRef.current
     try {
-      setRooms(await listAdminRooms())
+      const data = await listAdminRooms()
+      if (version < appliedRoomsVersionRef.current) return
+      appliedRoomsVersionRef.current = version
+      setRooms(data)
     } catch (err) {
+      if (version < appliedRoomsVersionRef.current) return
+      appliedRoomsVersionRef.current = version
       setSnackbar({
         open: true,
         message: err instanceof Error ? err.message : '获取直播间列表失败',
@@ -262,8 +271,12 @@ export default function AdminRooms({ isSuperAdmin }: AdminRoomsProps) {
   }
 
   const copyStreamKey = async (room: AdminRoom) => {
-    await navigator.clipboard.writeText(buildRtmpStreamKey(room.stream_id, room.stream_code))
-    setSnackbar({ open: true, message: '推流码已复制', severity: 'success' })
+    try {
+      await navigator.clipboard.writeText(buildRtmpStreamKey(room.stream_id, room.stream_code))
+      setSnackbar({ open: true, message: '推流码已复制', severity: 'success' })
+    } catch {
+      setSnackbar({ open: true, message: '复制失败，请手动复制', severity: 'error' })
+    }
   }
 
   const openCoverUpload = (room: AdminRoom) => {
