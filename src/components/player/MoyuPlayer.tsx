@@ -170,6 +170,7 @@ function MoyuPlayer({
   const volumeRef = useRef(0)
   const [volume, setVolume] = useAtom(playerVolumeAtom)
   const [preferredProtocol, setPreferredProtocol] = useAtom(preferredPlaybackProtocolAtom)
+  const preferredProtocolRef = useRef(preferredProtocol)
   const [protocols, setProtocols] = useState<PlaybackProtocol[]>([])
   const [protocol, setProtocol] = useState<PlaybackProtocol>()
   const [isPlaying, setIsPlaying] = useState(true)
@@ -247,6 +248,10 @@ function MoyuPlayer({
   }, [])
 
   useEffect(() => {
+    preferredProtocolRef.current = preferredProtocol
+  }, [preferredProtocol])
+
+  useEffect(() => {
     let cancelled = false
 
     getPlaybackProtocols()
@@ -260,13 +265,15 @@ function MoyuPlayer({
         setProtocols((current) => (
           areProtocolsEqual(current, nextProtocols) ? current : nextProtocols
         ))
-        setProtocol((current) => pickInitialProtocol(nextProtocols, current, preferredProtocol))
+        setProtocol((current) => (
+          pickInitialProtocol(nextProtocols, current, preferredProtocolRef.current)
+        ))
       })
 
     return () => {
       cancelled = true
     }
-  }, [preferredProtocol])
+  }, [])
 
   useEffect(() => {
     const video = videoRef.current

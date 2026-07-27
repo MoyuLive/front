@@ -176,6 +176,8 @@ export class WHEPClient extends EventTarget {
       }).then((fetched) => {
         //If the event channel could be created
         if (!fetched.ok) return
+        //If we were stopped while the request was in flight
+        if (!this.pc) return
         //Get the resource url
         const sseUrl = new URL(fetched.headers.get('location'), this.eventsUrl)
         //Open it
@@ -187,6 +189,9 @@ export class WHEPClient extends EventTarget {
           //console.dir(event);
           this.dispatchEvent(event)
         }
+      }).catch((error) => {
+        if (error?.name === 'AbortError') return
+        console.warn('WHEP SSE registration failed', error)
       })
     }
 
@@ -495,6 +500,12 @@ export class WHEPClient extends EventTarget {
 
     //Cancel any pending timeout
     this.iceTrickeTimeout = clearTimeout(this.iceTrickeTimeout)
+
+    //Close the server sent event channel
+    if (this.eventSource) {
+      this.eventSource.close()
+      this.eventSource = null
+    }
 
     //Close peerconnection
     this.pc.close()

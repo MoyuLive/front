@@ -224,6 +224,108 @@ test('WHEP preserves the connection-state handler installed by the playback adap
   }
 })
 
+test('WHEP ignores AbortError from optional SSE registration without unhandled rejection', async () => {
+  const originalFetch = globalThis.fetch
+  const originalWarn = console.warn
+  const unhandledRejections = []
+  const onUnhandledRejection = (reason) => unhandledRejections.push(reason)
+  const controller = new AbortController()
+  let resolveSseStarted
+  const sseStarted = new Promise((resolve) => {
+    resolveSseStarted = resolve
+  })
+  globalThis.fetch = (url, options) => {
+    if (String(url) === 'http://localhost/rtc/v1/whep/events') {
+      resolveSseStarted()
+      return new Promise((resolve, reject) => {
+        options.signal.addEventListener(
+          'abort',
+          () => reject(new DOMException('The operation was aborted', 'AbortError')),
+          { once: true }
+        )
+      })
+    }
+    return Promise.resolve({
+      ok: true,
+      status: 201,
+      headers: new Headers({
+        location: '/rtc/v1/whep/?session=masked',
+        link: '<http://localhost/rtc/v1/whep/events>; rel="urn:ietf:params:whep:ext:core:server-sent-events"'
+      }),
+      text: async () => ANSWER
+    })
+  }
+  console.warn = (...args) => {
+    throw new Error(`Unexpected warning: ${args.join(' ')}`)
+  }
+  process.on('unhandledRejection', onUnhandledRejection)
+
+  try {
+    const pc = new MockPeerConnection()
+    await new WHEPClient().view(
+      pc,
+      'http://localhost/rtc/v1/whep/?app=live&stream=room',
+      undefined,
+      controller.signal
+    )
+    await sseStarted
+    controller.abort()
+    await new Promise((resolve) => setImmediate(resolve))
+
+    assert.equal(pc.remoteDescription.sdp, ANSWER)
+    assert.deepEqual(unhandledRejections, [])
+  } finally {
+    process.off('unhandledRejection', onUnhandledRejection)
+    console.warn = originalWarn
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('WHEP warns for non-AbortError optional SSE registration failure', async () => {
+  const originalFetch = globalThis.fetch
+  const originalWarn = console.warn
+  const sseError = new Error('SSE registration failed')
+  const warnings = []
+  let resolveSseStarted
+  const sseStarted = new Promise((resolve) => {
+    resolveSseStarted = resolve
+  })
+  globalThis.fetch = async (url) => {
+    if (String(url) === 'http://localhost/rtc/v1/whep/events') {
+      resolveSseStarted()
+      throw sseError
+    }
+    return {
+      ok: true,
+      status: 201,
+      headers: new Headers({
+        location: '/rtc/v1/whep/?session=masked',
+        link: '<http://localhost/rtc/v1/whep/events>; rel="urn:ietf:params:whep:ext:core:server-sent-events"'
+      }),
+      text: async () => ANSWER
+    }
+  }
+  console.warn = (...args) => warnings.push(args)
+
+  try {
+    const pc = new MockPeerConnection()
+    await new WHEPClient().view(
+      pc,
+      'http://localhost/rtc/v1/whep/?app=live&stream=room'
+    )
+    await sseStarted
+    await new Promise((resolve) => setImmediate(resolve))
+
+    assert.equal(pc.remoteDescription.sdp, ANSWER)
+    assert.equal(warnings.length, 1)
+    assert.equal(warnings[0][0], 'WHEP SSE registration failed')
+    assert.equal(warnings[0][1], sseError)
+  } finally {
+    console.warn = originalWarn
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('WHEP sends the gathered offer in one POST without incompatible trickle PATCH', async () => {
   const originalFetch = globalThis.fetch
   const requests = []
