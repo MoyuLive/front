@@ -1,4 +1,4 @@
-import { accountValidationError, getOrCreateGuestId, sanitizeRedirect } from './viewerIdentity.js'
+import { accountValidationError, getOrCreateGuestId, sanitizeRedirect } from './viewerIdentity.ts'
 
 function assertEqual(actual: string | null, expected: string | null) {
   if (actual !== expected) {

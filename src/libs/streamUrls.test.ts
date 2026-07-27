@@ -15,7 +15,7 @@ import {
   normalizePublishProtocols,
   SUPPORTED_PUBLISH_PROTOCOLS,
   SUPPORTED_PLAYBACK_PROTOCOLS
-} from './streamUrls.js'
+} from './streamUrls.ts'
 
 function assertEqual(actual: string, expected: string) {
   if (actual !== expected) {

@@ -1,4 +1,4 @@
-import { shouldShowPageFullscreenControl } from './fullscreenControls.js'
+import { shouldShowPageFullscreenControl } from './fullscreenControls.ts'
 
 function assertEqual(actual: boolean, expected: boolean, message: string) {
   if (actual !== expected) {

@@ -5,7 +5,7 @@ import {
   newRecoveryBudget,
   type FreshMetadataDecision,
   type RecoveryTrigger
-} from './roomAccessState.js'
+} from './roomAccessState.ts'
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
