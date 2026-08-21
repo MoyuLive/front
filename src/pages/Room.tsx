@@ -1,9 +1,11 @@
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline'
 import LockOpenOutlinedIcon from '@mui/icons-material/LockOpenOutlined'
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import RssFeedIcon from '@mui/icons-material/RssFeed'
 import { Box, Button, Chip, Container, Stack, Typography } from '@mui/material'
+import { useAtom } from 'jotai'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 
 import AccountActions from '../components/AccountActions'
@@ -11,6 +13,7 @@ import MoyuPlayer from '../components/player/MoyuPlayer'
 import DanmakuPanel from '../components/room/DanmakuPanel'
 import RoomAccessGate from '../components/room/RoomAccessGate'
 import { useRoomChannel } from '../hooks/useRoomChannel'
+import { danmakuDisplaySettingsAtom, danmakuPanelCollapsedAtom } from '../storages/player'
 
 export default function Room() {
   const { roomId = '' } = useParams()
@@ -20,6 +23,10 @@ export default function Room() {
   const roomChannel = useRoomChannel(roomId)
   const { accessState, metadata } = roomChannel
   const isReady = accessState.kind === 'ready' && metadata !== null
+  const [danmakuSettings, setDanmakuSettings] = useAtom(danmakuDisplaySettingsAtom)
+  const [isDanmakuPanelCollapsed, setIsDanmakuPanelCollapsed] = useAtom(
+    danmakuPanelCollapsedAtom
+  )
 
   return (
     <Container
@@ -139,6 +146,18 @@ export default function Room() {
                   size="small"
                   variant="outlined"
                 />
+                <Button
+                  aria-controls="room-danmaku-panel"
+                  aria-expanded={!isDanmakuPanelCollapsed}
+                  color="inherit"
+                  onClick={() => setIsDanmakuPanelCollapsed((collapsed) => !collapsed)}
+                  size="small"
+                  startIcon={<ChatBubbleOutlineIcon />}
+                  sx={{ borderRadius: 1, minHeight: 32 }}
+                  variant="outlined"
+                >
+                  {isDanmakuPanelCollapsed ? '展开弹幕栏' : '收起弹幕栏'}
+                </Button>
               </Stack>
             </Box>
 
@@ -154,26 +173,32 @@ export default function Room() {
             >
               <Box sx={{ flex: '1 1 auto', minWidth: 0, width: '100%' }}>
                 <MoyuPlayer
+                  danmakuSettings={danmakuSettings}
                   danmakuMessages={roomChannel.messages}
                   roomId={roomId}
                   ticket={accessState.ticket}
                 />
               </Box>
-              <Box
-                sx={{
-                  flex: { xs: '1 1 auto', md: '0 0 auto' },
-                  minHeight: 0,
-                  width: { xs: '100%', md: 320, lg: 360 }
-                }}
-              >
-                <DanmakuPanel
-                  composerError={roomChannel.composerError}
-                  connection={roomChannel.connection}
-                  messages={roomChannel.messages}
-                  onSendMessage={roomChannel.sendMessage}
-                  viewer={accessState.viewer}
-                />
-              </Box>
+              {!isDanmakuPanelCollapsed ? (
+                <Box
+                  id="room-danmaku-panel"
+                  sx={{
+                    flex: { xs: '1 1 auto', md: '0 0 auto' },
+                    minHeight: 0,
+                    width: { xs: '100%', md: 320, lg: 360 }
+                  }}
+                >
+                  <DanmakuPanel
+                    composerError={roomChannel.composerError}
+                    connection={roomChannel.connection}
+                    messages={roomChannel.messages}
+                    onSendMessage={roomChannel.sendMessage}
+                    onSettingsChange={setDanmakuSettings}
+                    settings={danmakuSettings}
+                    viewer={accessState.viewer}
+                  />
+                </Box>
+              ) : null}
             </Box>
           </Stack>
         )}

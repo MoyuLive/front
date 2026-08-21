@@ -8,6 +8,7 @@ import {
   Tooltip
 } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
+import AspectRatioIcon from '@mui/icons-material/AspectRatio'
 import FitScreenIcon from '@mui/icons-material/FitScreen'
 import FullscreenIcon from '@mui/icons-material/Fullscreen'
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit'
@@ -26,12 +27,19 @@ import {
   normalizePlaybackProtocols,
   type PlaybackProtocol
 } from '../../libs/streamUrls'
-import { playerVolumeAtom, preferredPlaybackProtocolAtom } from '../../storages/player'
+import {
+  defaultDanmakuDisplaySettings,
+  playerVideoFitModeAtom,
+  playerVolumeAtom,
+  preferredPlaybackProtocolAtom,
+  type DanmakuDisplaySettings,
+  type VideoFitMode
+} from '../../storages/player'
 
 import styles from './MoyuPlayer.module.scss'
 import DanmakuOverlay from './DanmakuOverlay'
 import { attachPlaybackSource, type PlaybackHandle } from './playbackAdapters'
-import { shouldShowPageFullscreenControl } from './fullscreenControls'
+import { fullscreenEventNames, shouldShowPageFullscreenControl } from './fullscreenControls'
 import {
   buildMoyuPlayerSources,
   pickInitialProtocol
@@ -53,6 +61,8 @@ type FullscreenDocument = Document & {
   fullscreenEnabled?: boolean
   fullscreenElement?: Element | null
   exitFullscreen?: () => Promise<void>
+  msExitFullscreen?: () => void
+  msFullscreenElement?: Element | null
   webkitExitFullscreen?: () => void
   webkitFullscreenElement?: Element | null
   webkitFullscreenEnabled?: boolean
@@ -65,6 +75,7 @@ type FullscreenPlayerElement = HTMLDivElement & {
 type FullscreenVideoElement = HTMLVideoElement & {
   webkitDisplayingFullscreen?: boolean
   webkitEnterFullscreen?: () => void
+  webkitExitFullscreen?: () => void
   webkitSupportsFullscreen?: boolean
 }
 
@@ -110,10 +121,13 @@ function canUseNativeFullscreen(player: HTMLDivElement, video: HTMLVideoElement)
 function isNativeFullscreenActive(player: HTMLDivElement, video: HTMLVideoElement) {
   const fullscreenDocument = document as FullscreenDocument
   const fullscreenVideo = video as FullscreenVideoElement
-  const fullscreenElement = fullscreenDocument.fullscreenElement || fullscreenDocument.webkitFullscreenElement
+  const fullscreenElement = fullscreenDocument.fullscreenElement ||
+    fullscreenDocument.webkitFullscreenElement ||
+    fullscreenDocument.msFullscreenElement
   return fullscreenElement === player ||
     Boolean(fullscreenElement && player.contains(fullscreenElement)) ||
-    fullscreenVideo.webkitDisplayingFullscreen === true
+    (fullscreenVideo.webkitDisplayingFullscreen === true &&
+      typeof fullscreenVideo.webkitExitFullscreen === 'function')
 }
 
 function canUsePictureInPicture(video: HTMLVideoElement) {
@@ -152,6 +166,7 @@ export interface MoyuPlayerProps {
   roomId: string
   ticket: string
   danmakuMessages?: readonly DanmakuMessage[]
+  danmakuSettings?: DanmakuDisplaySettings
   onVideoElementChange?: (video: HTMLVideoElement | null) => void
 }
 
@@ -159,6 +174,7 @@ function MoyuPlayer({
   roomId,
   ticket,
   danmakuMessages = [],
+  danmakuSettings = defaultDanmakuDisplaySettings,
   onVideoElementChange
 }: MoyuPlayerProps) {
   const theme = useTheme()
@@ -170,6 +186,7 @@ function MoyuPlayer({
   const volumeRef = useRef(0)
   const [volume, setVolume] = useAtom(playerVolumeAtom)
   const [preferredProtocol, setPreferredProtocol] = useAtom(preferredPlaybackProtocolAtom)
+  const [videoFitMode, setVideoFitMode] = useAtom(playerVideoFitModeAtom)
   const preferredProtocolRef = useRef(preferredProtocol)
   const [protocols, setProtocols] = useState<PlaybackProtocol[]>([])
   const [protocol, setProtocol] = useState<PlaybackProtocol>()
@@ -368,12 +385,17 @@ function MoyuPlayer({
     setNativeFullscreenSupported(canUseNativeFullscreen(playerElement, videoElement))
     syncNativeFullscreen()
 
-    document.addEventListener('fullscreenchange', syncNativeFullscreen)
+    const nativeFullscreenEvents = fullscreenEventNames()
+    nativeFullscreenEvents.forEach((eventName) => {
+      document.addEventListener(eventName, syncNativeFullscreen)
+    })
     videoElement.addEventListener('webkitbeginfullscreen', syncNativeFullscreen)
     videoElement.addEventListener('webkitendfullscreen', syncNativeFullscreen)
 
     return () => {
-      document.removeEventListener('fullscreenchange', syncNativeFullscreen)
+      nativeFullscreenEvents.forEach((eventName) => {
+        document.removeEventListener(eventName, syncNativeFullscreen)
+      })
       videoElement.removeEventListener('webkitbeginfullscreen', syncNativeFullscreen)
       videoElement.removeEventListener('webkitendfullscreen', syncNativeFullscreen)
     }
@@ -404,6 +426,19 @@ function MoyuPlayer({
 
   useHotkeys('esc', () => setIsWebFullscreen(false), [])
 
+  useEffect(() => {
+    if (!isWebFullscreen) return
+
+    function handleDocumentKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsWebFullscreen(false)
+      }
+    }
+
+    document.addEventListener('keydown', handleDocumentKeyDown)
+    return () => document.removeEventListener('keydown', handleDocumentKeyDown)
+  }, [isWebFullscreen])
+
   async function togglePlaying() {
     const video = videoRef.current
     if (!video) return
@@ -428,6 +463,10 @@ function MoyuPlayer({
     setIsPlaying(true)
   }
 
+  function toggleVideoFitMode() {
+    setVideoFitMode((current: VideoFitMode) => current === 'cover' ? 'contain' : 'cover')
+  }
+
   async function toggleNativeFullscreen() {
     const player = playerRef.current
     const video = videoRef.current
@@ -438,9 +477,19 @@ function MoyuPlayer({
     const fullscreenVideo = video as FullscreenVideoElement
 
     try {
-      if (fullscreenDocument.fullscreenElement || fullscreenDocument.webkitFullscreenElement) {
+      const isWebKitVideoFullscreen = fullscreenVideo.webkitDisplayingFullscreen === true
+
+      if (isWebKitVideoFullscreen) {
+        fullscreenVideo.webkitExitFullscreen?.()
+        return
+      }
+
+      if (fullscreenDocument.fullscreenElement ||
+        fullscreenDocument.webkitFullscreenElement ||
+        fullscreenDocument.msFullscreenElement) {
         await fullscreenDocument.exitFullscreen?.()
         fullscreenDocument.webkitExitFullscreen?.()
+        fullscreenDocument.msExitFullscreen?.()
         return
       }
 
@@ -509,7 +558,7 @@ function MoyuPlayer({
     >
       <video
         ref={videoRef}
-        className={styles.video}
+        className={`${styles.video} ${videoFitMode === 'cover' ? styles.videoCover : styles.videoContain}`}
         crossOrigin="anonymous"
         playsInline
         muted={isMuted}
@@ -536,7 +585,7 @@ function MoyuPlayer({
         }}
       />
 
-      <DanmakuOverlay messages={danmakuMessages} />
+      <DanmakuOverlay messages={danmakuMessages} settings={danmakuSettings} />
 
       {!hasPlaybackAccess ? (
         <div className={styles.statusLayer} role="status">
@@ -630,6 +679,20 @@ function MoyuPlayer({
             </MenuItem>
           ))}
         </Menu>
+
+        <Tooltip title={videoFitMode === 'cover' ? '画面填充：可能裁切边缘' : '画面适应：完整显示'}>
+          <Button
+            aria-label={videoFitMode === 'cover' ? '当前画面填充：可能裁切边缘' : '当前画面适应：完整显示'}
+            className={styles.fitModeButton}
+            color="inherit"
+            size="small"
+            startIcon={<AspectRatioIcon fontSize="small" />}
+            variant="text"
+            onClick={toggleVideoFitMode}
+          >
+            {videoFitMode === 'cover' ? '填充' : '适应'}
+          </Button>
+        </Tooltip>
 
         {shouldShowPageFullscreenControl(isNativeFullscreen) ? (
           <Tooltip title={isWebFullscreen ? 'Exit page full screen' : 'Page full screen'}>

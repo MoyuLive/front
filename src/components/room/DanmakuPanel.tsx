@@ -7,7 +7,14 @@ import {
   CardContent,
   Chip,
   Divider,
+  FormControl,
+  FormControlLabel,
+  InputLabel,
+  MenuItem,
+  Select,
+  Slider,
   Stack,
+  Switch,
   TextField,
   Typography,
   type ChipProps
@@ -17,12 +24,15 @@ import { useState, type FormEvent } from 'react'
 import type { ConnectionState } from '../../hooks/useRoomChannel'
 import type { DanmakuMessage, ViewerIdentity } from '../../libs/api'
 import { unicodeLength } from '../../libs/viewerIdentity'
+import type { DanmakuDisplaySettings } from '../../storages/player'
 
 export interface DanmakuPanelProps {
   viewer: ViewerIdentity
   connection: ConnectionState
   messages: readonly DanmakuMessage[]
   composerError: string
+  settings: DanmakuDisplaySettings
+  onSettingsChange: (settings: DanmakuDisplaySettings) => void
   onSendMessage: (content: string) => boolean
 }
 
@@ -42,6 +52,8 @@ export default function DanmakuPanel({
   connection,
   messages,
   composerError,
+  settings,
+  onSettingsChange,
   onSendMessage
 }: DanmakuPanelProps) {
   const [content, setContent] = useState('')
@@ -49,6 +61,14 @@ export default function DanmakuPanel({
   const contentLength = unicodeLength(content)
   const isConnected = connection === 'connected'
   const connectionPresentation = CONNECTION_PRESENTATION[connection]
+  const opacityPercent = Math.round(settings.opacity * 100)
+
+  const updateSettings = <Key extends keyof DanmakuDisplaySettings>(
+    key: Key,
+    value: DanmakuDisplaySettings[Key]
+  ) => {
+    onSettingsChange({ ...settings, [key]: value })
+  }
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -118,6 +138,134 @@ export default function DanmakuPanel({
               size="small"
               variant="outlined"
             />
+          </Box>
+
+          <Divider />
+
+          <Box
+            aria-label="弹幕设置"
+            component="section"
+            sx={{
+              borderColor: 'divider',
+              borderRadius: 1,
+              borderStyle: 'solid',
+              borderWidth: 1,
+              p: 1.5
+            }}
+          >
+            <Stack spacing={1.5}>
+              <Box
+                sx={{
+                  alignItems: 'center',
+                  display: 'flex',
+                  gap: 1,
+                  justifyContent: 'space-between'
+                }}
+              >
+                <Typography component="h3" variant="body1">
+                  弹幕设置
+                </Typography>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={settings.enabled}
+                      onChange={(_, checked) => updateSettings('enabled', checked)}
+                      size="small"
+                    />
+                  }
+                  label="播放器弹幕"
+                  labelPlacement="start"
+                  sx={{ ml: 0, mr: 0 }}
+                />
+              </Box>
+
+              <Box sx={{ px: 0.5 }}>
+                <Box
+                  sx={{
+                    alignItems: 'center',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    mb: 0.5
+                  }}
+                >
+                  <Typography id="danmaku-opacity-label" variant="body2">
+                    弹幕透明度
+                  </Typography>
+                  <Typography color="text.secondary" variant="caption">
+                    {opacityPercent}%
+                  </Typography>
+                </Box>
+                <Slider
+                  aria-label="弹幕透明度"
+                  aria-labelledby="danmaku-opacity-label"
+                  max={100}
+                  min={35}
+                  onChange={(_, value) => {
+                    if (typeof value === 'number') {
+                      updateSettings('opacity', value / 100)
+                    }
+                  }}
+                  size="small"
+                  step={5}
+                  value={opacityPercent}
+                  valueLabelDisplay="auto"
+                  valueLabelFormat={(value) => `${value}%`}
+                />
+              </Box>
+
+              <Stack direction={{ xs: 'column', sm: 'row', md: 'column' }} spacing={1}>
+                <FormControl fullWidth size="small">
+                  <InputLabel id="danmaku-font-size-label">字号</InputLabel>
+                  <Select
+                    label="字号"
+                    labelId="danmaku-font-size-label"
+                    onChange={(event) =>
+                      updateSettings(
+                        'fontSize',
+                        event.target.value as DanmakuDisplaySettings['fontSize']
+                      )
+                    }
+                    value={settings.fontSize}
+                  >
+                    <MenuItem value="small">小</MenuItem>
+                    <MenuItem value="medium">中</MenuItem>
+                    <MenuItem value="large">大</MenuItem>
+                  </Select>
+                </FormControl>
+
+                <FormControl fullWidth size="small">
+                  <InputLabel id="danmaku-speed-label">速度</InputLabel>
+                  <Select
+                    label="速度"
+                    labelId="danmaku-speed-label"
+                    onChange={(event) =>
+                      updateSettings('speed', event.target.value as DanmakuDisplaySettings['speed'])
+                    }
+                    value={settings.speed}
+                  >
+                    <MenuItem value="slow">慢</MenuItem>
+                    <MenuItem value="normal">标准</MenuItem>
+                    <MenuItem value="fast">快</MenuItem>
+                  </Select>
+                </FormControl>
+
+                <FormControl fullWidth size="small">
+                  <InputLabel id="danmaku-density-label">密度</InputLabel>
+                  <Select
+                    label="密度"
+                    labelId="danmaku-density-label"
+                    onChange={(event) =>
+                      updateSettings('density', event.target.value as DanmakuDisplaySettings['density'])
+                    }
+                    value={settings.density}
+                  >
+                    <MenuItem value="low">低</MenuItem>
+                    <MenuItem value="normal">标准</MenuItem>
+                    <MenuItem value="high">高</MenuItem>
+                  </Select>
+                </FormControl>
+              </Stack>
+            </Stack>
           </Box>
 
           <Divider />

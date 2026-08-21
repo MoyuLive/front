@@ -12,9 +12,10 @@
     top: var(--danmaku-offset);
     left: 100%;
     color: var(--player-overlay-text);
-    font-size: 1rem;
+    font-size: var(--danmaku-font-size);
     font-weight: 500;
     line-height: 1.5;
+    opacity: var(--danmaku-opacity);
     text-shadow:
         0 1px 2px var(--player-overlay-outline),
         1px 0 1px var(--player-overlay-outline),
@@ -36,7 +37,7 @@
 
     5%,
     92% {
-        opacity: 1;
+        opacity: var(--danmaku-opacity);
     }
 
     100% {
@@ -48,7 +49,6 @@
 @media (max-width: 560px) {
     .message {
         top: var(--danmaku-offset-mobile);
-        font-size: 0.875rem;
         line-height: 1.5;
     }
 }
@@ -72,7 +72,7 @@
 @keyframes danmaku-static {
     0%,
     92% {
-        opacity: 1;
+        opacity: var(--danmaku-opacity);
     }
 
     100% {
